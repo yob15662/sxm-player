@@ -1,8 +1,10 @@
 # sxm-player
 
-## Description
+## Build automations with SiriusXM channels, home assistant or any other mpd compatible software
 
-This project provides a SiriusXM streaming proxy for playback of SiriusXM channels on headless Linux systems. It acts as an Icecast-compatible server, allowing you to use standard music players like MPD (Music Player Daemon), VLC, or any other client that supports Icecast streams to listen to SiriusXM content.
+![Home Assistant Integration](image-1.png)
+
+This project provides a SiriusXM streaming proxy for playback of SiriusXM channels on headless Linux systems. It acts as an Icecast-compatible server with full metadata support and cover art, allowing you to use standard music players like MPD (Music Player Daemon), VLC, or any other client that supports Icecast or HLS streams to listen to SiriusXM content.
 
 The proxy authenticates with SiriusXM's API, retrieves streaming URLs for channels, and re-streams the content in a format that's compatible with popular media players. This enables seamless integration of SiriusXM into your existing audio setup, automation workflows, or home media systems. 
 
