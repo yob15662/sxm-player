@@ -8,6 +8,40 @@ The proxy authenticates with SiriusXM's API, retrieves streaming URLs for channe
 
 Just like the web player, you will need an active Sirius XM account to use the proxy. 
 
+## Running
+
+### Using Docker Compose
+
+The easiest way to run sxm-player is using Docker Compose. A sample configuration file is provided at `deploy/compose/docker-compose.sample.yml`.
+
+1. **Copy and configure the docker-compose file:**
+   ```bash
+   cp deploy/compose/docker-compose.sample.yml docker-compose.yml
+   ```
+
+2. **Update the configuration:**
+   Edit the `docker-compose.yml` file to set your environment variables and mount points. Key configurations include:
+   - SiriusXM authentication credentials
+   - Port mappings for the Icecast server
+   - Volume mounts for configuration and playlists
+
+3. **Configure MPD playlists:**
+   - MPD typically uses `/var/lib/mpd/playlists/` as the default playlist directory
+   - Update the `docker-compose.yml` to mount this directory in the container
+   - Ensure the directory has appropriate permissions so both MPD and the sxm-player container can read/write:
+     ```bash
+     sudo chown -R mpd:audio /var/lib/mpd/playlists/
+     sudo chmod 755 /var/lib/mpd/playlists/
+     ```
+   - The sxm-player container will generate playlist files (`.m3u` format) in this directory that MPD can read and use
+
+4. **Start the service:**
+   ```bash
+   docker-compose up -d
+   ```
+
+The sxm-player proxy will be accessible as an Icecast-compatible stream that you can configure in MPD or other compatible music players.
+
 ## Development
 
 The `sxm_cleaned.yaml` Open API was generated from the public web player.
