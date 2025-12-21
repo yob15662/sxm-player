@@ -1,0 +1,133 @@
+﻿@inject SiriusXMPlayer siriusXMReader
+@inject NavigationManager NavigationManager
+@implements IDisposable
+@page "/"
+
+<PageTitle>Channel Selector</PageTitle>
+<DisplayHeading Size="DisplayHeadingSize.Is2">Sirius XM</DisplayHeading>
+<Card Background="Background.Success" WhiteText>
+    <CardBody>
+        <CardTitle Size="3">
+            Now Playing
+            @if (nowPlayingData != null)
+            {
+                 @($" - {nowPlayingData.channel}")
+            }            
+        </CardTitle>
+        <CardText>
+            @if (nowPlayingData != null)
+            {
+                <Heading Size="HeadingSize.Is5">@nowPlayingData.artist</Heading>
+                <Text>@nowPlayingData.song</Text>
+            }
+            else
+            {
+                <Text>-</Text>
+            }
+        </CardText>
+    </CardBody>
+</Card>
+<Card style="margin-top: 10px;">
+    <CardBody>
+        <CardTitle Size="3">
+            Current Channel
+        </CardTitle>
+        <CardText>
+            <a href="@GetCurrentURL()">Current Channel</a>
+        </CardText>
+    </CardBody>
+</Card>
+<Accordion style="margin-top: 10px;">
+    <Collapse Visible="false">
+        <CollapseHeader>
+            <Heading Size="HeadingSize.Is5">
+                <AccordionToggle>Channels</AccordionToggle>
+            </Heading>
+        </CollapseHeader>
+        <CollapseBody>
+            @if (channels == null)
+            {
+                <SpinKit Type="SpinKitType.Swing" />
+            }
+            else
+            {
+
+                <DataGrid TItem="EntityData"
+                      Data="@channels"
+                      @bind-SelectedRow="@_selected"
+                        Filterable
+                        Responsive
+                        ShowPager
+                      PageSize="15"
+                      PagerPosition="DataGridPagerPosition.TopAndBottom"
+                        ShowPageSizes>
+                <DataGridCommandColumn />
+                    <DataGridColumn Field="@nameof(EntityData.Filename)" Caption="#" Width="10px" />
+                    <DataGridColumn Field="@nameof(EntityData.ChannelName)" Caption="Name">
+                    <DisplayTemplate>
+                        @{
+                                var channel = context as EntityData;
+                                <a href="@GetChannelURL(channel!)">@channel.ChannelName</a>
+                            }
+                        </DisplayTemplate>
+                    </DataGridColumn>
+                    @*                     <DataGridColumn Field="@nameof(SXMChannel.MainCategory)" Caption="Category" />*@
+                    <DataGridColumn Field="@nameof(EntityData.Id)" Caption="Favorite" Width="10px">
+                        <DisplayTemplate>
+                            @{
+                                var channel = context as EntityData;
+							    @(favorites?.Count > 0 && favorites.Contains(channel!.Id) ? "★" : "")
+                            }
+                        </DisplayTemplate>
+                    </DataGridColumn>
+                    <DataGridColumn Field="@nameof(EntityData.ChannelDescription)" Caption="Description" />
+
+                </DataGrid>
+            }
+        </CollapseBody>
+    </Collapse>
+</Accordion>
+
+
+@code {
+
+    LoadingIndicator loadingIndicator;
+
+    private EntityData? _selected;
+
+    private List<EntityData> channels;
+
+    private string GetChannelURL(EntityData channel)
+    {
+        //    @<a href="@GetChannelURL(channel)">Open</a>
+        return (new Uri(new Uri(NavigationManager.Uri), $"playlists/{channel.Filename}.m3u")).AbsolutePath;
+    }
+
+    private string GetCurrentURL()
+    {
+        //    @<a href="@GetChannelURL(channel)">Open</a>
+        return (new Uri(new Uri(NavigationManager.Uri), $"playlists/{SiriusXMPlayer.CURRENT_ID}.m3u")).AbsolutePath;
+    }
+
+	private List<string> favorites = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        nowPlayingData = siriusXMReader.GetNowPlaying();
+        siriusXMReader.RegisterNowPlayingListener(newTrack =>
+        {
+            nowPlayingData = newTrack;
+            InvokeAsync(() => StateHasChanged());
+        });
+        var dt = (await siriusXMReader.GetChannelsAsync()).ToList();
+		favorites = (await siriusXMReader.GetFavoritesAsync())?.ToList() ?? new();
+
+        //channels = dt;
+        channels = dt.OrderByDescending(c => favorites.Contains(c.Entity.Id)).Select(e => e.Entity).ToList();
+    }
+
+    private NowPlayingData? nowPlayingData;
+
+    public void Dispose() => siriusXMReader.RegisterNowPlayingListener(null);
+
+}

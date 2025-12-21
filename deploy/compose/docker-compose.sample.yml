@@ -1,0 +1,28 @@
+# Sample docker-compose for sxm-player
+# Requires: docker login to ghcr.io with a token that has read:packages
+# Image built by the CI: ghcr.io/yob15662/sxm-player:latest
+
+services:
+  sxm-player:
+    image: ghcr.io/yob15662/sxm-player:latest
+    container_name: sxm-player
+    platform: linux/arm64
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    secrets:
+      - sxm_password     
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      # Set your SiriusXM username      
+      SXM__USERNAME: "<username>"      
+      SXM_PASSWORD_FILE: /run/secrets/sxm_password
+      HOST_HOSTNAME: ${HOSTNAME}
+    # Mount a sample config into the container (customize for your setup)
+    volumes:
+      - /home/<user>/Playlists:/playlists:rw
+
+secrets:
+  sxm_password:
+    # Store password in this file (exclude from git)
+    file: ./sxm_password.txt  

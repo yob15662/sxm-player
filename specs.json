@@ -1,0 +1,1677 @@
+{
+    "clientsdk": {
+        "$schema": "https://sdk.client-config.siriusxm.com/1.0.0.json",
+        "config": {
+            "domains": {
+                "commerce": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "confirmOrder": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "order/v1/orders/{orderId}/confirm",
+                            "method": "PUT",
+                            "timeout": 15
+                        },
+                        "createBillingProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "createOrder": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "order/v1/orders",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "createPayment": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}/pay",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "createPaymentMethodsCardSetupToken": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/card/setup-token",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "createPaymentMethodsFirstCardSetupToken": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/payment-methods/card/setup-token",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "createPaymentSetupToken": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/pay",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "deletePaymentMethod": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}",
+                            "method": "DELETE",
+                            "timeout": 15
+                        },
+                        "getBalanceDueDetails": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/balance-due",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getBillingProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getBillingProfileNextBill": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/next-bill",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getBillingProfilePaymentHistory": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-history",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "startDateTime",
+                                    "required": true,
+                                    "value": "{startDateTime}"
+                                },
+                                {
+                                    "name": "endDateTime",
+                                    "required": true,
+                                    "value": "{endDateTime}"
+                                },
+                                {
+                                    "name": "paymentMethodId",
+                                    "required": false,
+                                    "value": "{paymentMethodId}"
+                                },
+                                {
+                                    "name": "pageSize",
+                                    "required": false,
+                                    "value": "{pageSize}"
+                                },
+                                {
+                                    "name": "nextToken",
+                                    "required": false,
+                                    "value": "{nextToken}"
+                                },
+                                {
+                                    "name": "orderBy",
+                                    "required": false,
+                                    "value": "{orderBy}"
+                                },
+                                {
+                                    "name": "entryType",
+                                    "required": false,
+                                    "value": "{entryType}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getDefaultBillingProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profile/default",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getInvoice": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/invoices/{id}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getInvoices": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1//billing-profiles/{billingProfileId}/invoices",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "startDateTime",
+                                    "required": true,
+                                    "value": "{startDateTime}"
+                                },
+                                {
+                                    "name": "endDateTime",
+                                    "required": true,
+                                    "value": "{endDateTime}"
+                                },
+                                {
+                                    "name": "paymentMethodId",
+                                    "required": false,
+                                    "value": "{paymentMethodId}"
+                                },
+                                {
+                                    "name": "subscriptionId",
+                                    "required": false,
+                                    "value": "{subscriptionId}"
+                                },
+                                {
+                                    "name": "pageSize",
+                                    "required": false,
+                                    "value": "{pageSize}"
+                                },
+                                {
+                                    "name": "nextToken",
+                                    "required": false,
+                                    "value": "{nextToken}"
+                                },
+                                {
+                                    "name": "orderBy",
+                                    "required": false,
+                                    "value": "{orderBy}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getOrder": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "order/v1/orders/{orderId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getPaymentMethod": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getPaymentMethodHistory": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}/history",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "startDateTime",
+                                    "required": false,
+                                    "value": "{startDateTime}"
+                                },
+                                {
+                                    "name": "endDateTime",
+                                    "required": false,
+                                    "value": "{endDateTime}"
+                                },
+                                {
+                                    "name": "pageSize",
+                                    "required": false,
+                                    "value": "{pageSize}"
+                                },
+                                {
+                                    "name": "nextToken",
+                                    "required": false,
+                                    "value": "{nextToken}"
+                                },
+                                {
+                                    "name": "orderBy",
+                                    "required": false,
+                                    "value": "{orderBy}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getPaymentMethods": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "offerDetails": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "eligibility/v1/offers/catalog/{offerId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "offersChange": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "eligibility/v1/offers/change",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "country",
+                                    "required": false,
+                                    "value": "{country}"
+                                },
+                                {
+                                    "name": "promoCode",
+                                    "required": false,
+                                    "value": "{promoCode}"
+                                },
+                                {
+                                    "name": "baseTerm",
+                                    "required": false,
+                                    "value": "{baseTerm}"
+                                },
+                                {
+                                    "name": "trialPreference",
+                                    "required": false,
+                                    "value": "{trialPreference}"
+                                },
+                                {
+                                    "name": "decisionTime",
+                                    "required": false,
+                                    "value": "{decisionTime}"
+                                },
+                                {
+                                    "name": "subscription",
+                                    "required": true,
+                                    "value": "{subscription}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "offersNew": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "eligibility/v1/offers/new",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "country",
+                                    "required": false,
+                                    "value": "{country}"
+                                },
+                                {
+                                    "name": "promoCode",
+                                    "required": false,
+                                    "value": "{promoCode}"
+                                },
+                                {
+                                    "name": "baseTerm",
+                                    "required": false,
+                                    "value": "{baseTerm}"
+                                },
+                                {
+                                    "name": "trialPreference",
+                                    "required": false,
+                                    "value": "{trialPreference}"
+                                },
+                                {
+                                    "name": "decisionTime",
+                                    "required": false,
+                                    "value": "{decisionTime}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "offersSave": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "eligibility/v1/offers/save",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "country",
+                                    "required": false,
+                                    "value": "{country}"
+                                },
+                                {
+                                    "name": "promoCode",
+                                    "required": false,
+                                    "value": "{promoCode}"
+                                },
+                                {
+                                    "name": "baseTerm",
+                                    "required": false,
+                                    "value": "{baseTerm}"
+                                },
+                                {
+                                    "name": "trialPreference",
+                                    "required": false,
+                                    "value": "{trialPreference}"
+                                },
+                                {
+                                    "name": "decisionTime",
+                                    "required": false,
+                                    "value": "{decisionTime}"
+                                },
+                                {
+                                    "name": "subscription",
+                                    "required": true,
+                                    "value": "{subscription}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "setBillingProfileDefaultPaymentMethod": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "queryParams": [
+                                {
+                                    "name": "stripePaymentMethodId",
+                                    "required": false,
+                                    "value": "{stripePaymentMethodId}"
+                                }
+                            ],
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}/default",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "subscriptionForId": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "subscription/v1/subscriptions/{subscriptionId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "subscriptions": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "subscription/v1/subscriptions",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "sync": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "activation/v1/sync/{syncTarget}",
+                            "method": "PUT",
+                            "timeout": 15
+                        },
+                        "updateBillingProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}",
+                            "method": "PATCH",
+                            "timeout": 15
+                        },
+                        "updatePaymentMethod": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "billing/v1/billing-profiles/{billingProfileId}/payment-methods/{paymentMethodId}",
+                            "method": "PATCH",
+                            "timeout": 15
+                        }
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "content": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "getAllLibraryItems": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/all",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getAllNotificationItems": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/notification/all",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "entityTypes",
+                                    "required": false,
+                                    "value": "{entityTypes}"
+                                },
+                                {
+                                    "name": "entityId",
+                                    "required": false,
+                                    "value": "{entityId}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getAutoDownloadFilterViews": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/filter-views",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getAutoDownloadNewEpisodes": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/new-podcast-episodes",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getAutoDownloadShowPodcast": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/show-podcast/{entityId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getAutoDownloadShowPodcasts": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/show-podcast",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getContainer": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "{containerUrl}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getContainerFromTastes": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getLibraryFilters": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/filters?deviceClass=TV",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "deviceClass",
+                                    "required": false,
+                                    "value": "TV"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getLibraryFilterViews": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/filter-views",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getLibraryMainView": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/main-view",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getLookaround": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "https://lookaround-cache-prod.streaming.siriusxm.com/contentservices/v1/live/lookAround",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "delta",
+                                    "required": true,
+                                    "value": "{delta}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getLookaroundEpisodes": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "https://lookaround-cache-prod.streaming.siriusxm.com/contentservices/v1/live/lookAroundEpisodes",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getNewEpisodesView": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/new-episodes-view",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getNotificationFilters": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/notification/filters",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getNotificationFilterViews": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/notification/filter-views",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getPage": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "page/v1/page/{entityType}/{entityId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getPivotingContainer": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "recommender/v1/container/pivoting",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "entityType",
+                                    "required": true,
+                                    "value": "{entityType}"
+                                },
+                                {
+                                    "name": "entityId",
+                                    "required": true,
+                                    "value": "{entityId}"
+                                },
+                                {
+                                    "name": "containerId",
+                                    "required": true,
+                                    "value": "{containerId}"
+                                },
+                                {
+                                    "name": "currentPage",
+                                    "required": true,
+                                    "value": "{currentPage}"
+                                },
+                                {
+                                    "name": "pageLimit",
+                                    "required": true,
+                                    "value": "{pageLimit}"
+                                },
+                                {
+                                    "name": "contentVersion",
+                                    "required": false,
+                                    "value": "{contentVersion}"
+                                },
+                                {
+                                    "name": "useCuratedContext",
+                                    "required": false,
+                                    "value": "{useCuratedContext}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getRealTimeSportsData": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getRelatedTaste": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "recommender/v1/get-related-taste",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "entityType",
+                                    "required": false,
+                                    "value": "{entityType}"
+                                },
+                                {
+                                    "name": "entityId",
+                                    "required": false,
+                                    "value": "{entityId}"
+                                },
+                                {
+                                    "name": "currentPage",
+                                    "required": true,
+                                    "value": "{currentPage}"
+                                },
+                                {
+                                    "name": "pageLimit",
+                                    "required": true,
+                                    "value": "{pageLimit}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getSetSegment": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "{paginationUrl}",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "offset",
+                                    "required": true,
+                                    "value": "{offset}"
+                                },
+                                {
+                                    "name": "size",
+                                    "required": true,
+                                    "value": "{size}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getStationFeedback": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "stations/v1/station-feedback/station/type/{contentEntityType}/id/{contentEntityId}",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "itemEntityIds",
+                                    "required": true,
+                                    "value": "{itemEntityIds}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getTaste": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "recommender/v1/get-taste",
+                            "method": "POST",
+                            "queryParams": [
+                                {
+                                    "name": "currentPage",
+                                    "required": true,
+                                    "value": "{currentPage}"
+                                },
+                                {
+                                    "name": "pageLimit",
+                                    "required": true,
+                                    "value": "{pageLimit}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getUserProgress": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/user-progress",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getYourEpisodesView": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/your-episodes-view",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "migrateDownloads": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/download/migration",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "setTaste": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "recommender/v1/set-taste",
+                            "method": "POST",
+                            "queryParams": [
+                                {
+                                    "name": "currentPage",
+                                    "required": true,
+                                    "value": "{currentPage}"
+                                },
+                                {
+                                    "name": "pageLimit",
+                                    "required": true,
+                                    "value": "{pageLimit}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "subscribeAutoDownloadShowPodcast": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/show-podcast/{entityId}",
+                            "method": "PUT",
+                            "timeout": 15
+                        },
+                        "unsubscribeAutoDownloadShowPodcast": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/autodownload/show-podcast/{entityId}",
+                            "method": "DELETE",
+                            "timeout": 15
+                        },
+                        "updateLibrary": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/library/update",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "updateNotification": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "ondemand/v1/notification/update",
+                            "method": "POST",
+                            "timeout": 15
+                        }
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 1
+                    }
+                },
+                "image": {
+                    "baseUrl": "https://imgsrv-sxm-prod-device.streaming.siriusxm.com/{encodedImageParams}"
+                },
+                "localization": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "getLocalizations": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "localizationservice/v1/localizations",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "dictionaries",
+                                    "required": true,
+                                    "value": "{dictionaries}"
+                                },
+                                {
+                                    "name": "locale",
+                                    "required": false,
+                                    "value": "{locale}"
+                                }
+                            ],
+                            "timeout": 15
+                        }
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "playback": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "getDecryptionKeyFromKeyId": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/key/v1/{keyId}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getDecryptionKeyFromURL": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "{url}",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "liveLookAround": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/live/v1/lookAround",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "liveUpdate": {
+                            "codingOptions": {
+                                "dateFormat": "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                            },
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/liveUpdate",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "nextupAdd": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/nextup/v1/add",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "nextupEnable": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/nextup/v1/enable",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "nextupListQueuedItems": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/nextup/v1/listQueuedItems",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "nextupRemove": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/nextup/v1/remove",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "peek": {
+                            "codingOptions": {
+                                "dateFormat": "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                            },
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/peek",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "previous": {
+                            "codingOptions": {
+                                "dateFormat": "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                            },
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/previous",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "replay": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/replay",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "skip": {
+                            "codingOptions": {
+                                "dateFormat": "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                            },
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/skip",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "streamsStatus": {
+                            "disableCaching": true,
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/stream-enforcement/v1/status",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "telemetryAction": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8",
+                                "X-SXM-Action-ID": "{actionId}",
+                                "X-SXM-Source-Timestamp": "{sourceTimestamp}"
+                            },
+                            "href": "playback/telemetry/v1/action",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "tuneSource": {
+                            "codingOptions": {
+                                "dateFormat": "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                            },
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "playback/play/v1/tuneSource",
+                            "method": "POST",
+                            "timeout": 15
+                        }
+                    },
+                    "extras": {
+                        "encryptedSources": [
+                            "artist-station",
+                            "channel-linear",
+                            "channel-xtra",
+                            "episode-audio",
+                            "episode-podcast",
+                            "episode-video"
+                        ],
+                        "manifestVariant": null
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "search": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "getRecentSearches": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "search/v1/recentSearches",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "resultSize",
+                                    "required": false,
+                                    "value": "{resultSize}"
+                                },
+                                {
+                                    "name": "entityType",
+                                    "required": false,
+                                    "value": "{entityTypes}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getSearchFilters": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "search/v1/getSearchFilters?deviceClass=TV",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "deviceClass",
+                                    "required": false,
+                                    "value": "TV"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "getSearchResults": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "search/v1/search",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getTrendingSearches": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "search/v1/trendingSearches",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "resultSize",
+                                    "required": false,
+                                    "value": "{resultSize}"
+                                },
+                                {
+                                    "name": "entityType",
+                                    "required": false,
+                                    "value": "{entityTypes}"
+                                }
+                            ],
+                            "timeout": 15
+                        }
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "user": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "anonymous": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {deviceGrant}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/sessions/anonymous",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "authenticated": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {identityGrant}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/sessions/authenticated",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "authenticatePassword": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/authenticate/password",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "changeEmailAddress": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/change-email-address",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "changePassword": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity-group/v1/identitygroups/change-password",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "changePhoneNumber": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity-group/v1/identitygroups/change-phone-number",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "checkSalStatus": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "uso-service/v1/sal",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "magicLinkGrant",
+                                    "required": true,
+                                    "value": "{magicLinkGrant}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "create": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "orchestration/v1/identities/create",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "delete": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "orchestration/v1/identities",
+                            "method": "DELETE",
+                            "timeout": 15
+                        },
+                        "devices": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Content-Type": "application/json; charset=utf-8",
+                                "X-SXM-Platform": "{platformName}",
+                                "X-SXM-Tenant": "{tenantId}"
+                            },
+                            "href": "device/v1/devices",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "getAccount": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "account/v1/accounts/me",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getIdentity": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/me",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "getProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "profile/v1/profiles/me",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "issueCastingGrant": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/casting/grants/issue",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "magicLinkRedeem": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "magic-link/v1/redeem/{magicLinkId}",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "migrateSession": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/sessions/migrate",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "oauthThirdParty": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/oauth/auth-code",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "otpAuthenticate": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {otpGrant}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/authenticate/otp",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "otpInitiate": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "otp/v1/otp/initiate",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "otpRedeem": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "otp/v1/otp/redeem",
+                            "method": "PUT",
+                            "timeout": 15
+                        },
+                        "passkeyAuthenticateFinish": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {startGrant}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/authenticate/webauthn/finish",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "passkeyAuthenticateStart": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/authenticate/webauthn/start",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "passkeyCreateFinish": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {startGrant}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/create/webauthn/finish",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "passkeyCreateStart": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/create/webauthn/start",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "recordOfSaleExists": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "record-of-sale/v1/exists",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "email",
+                                    "required": true,
+                                    "value": "{emailAddress}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "recordOfSaleStatus": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "record-of-sale/v1/records/{smsSubscriptionId}/status",
+                            "method": "GET",
+                            "timeout": 15
+                        },
+                        "refresh": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {refreshToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/sessions/refresh",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "status": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "identity/v1/identities/status",
+                            "method": "GET",
+                            "queryParams": [
+                                {
+                                    "name": "handle",
+                                    "required": true,
+                                    "value": "{handle}"
+                                }
+                            ],
+                            "timeout": 15
+                        },
+                        "updateAccount": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "account/v1/accounts",
+                            "method": "PATCH",
+                            "timeout": 15
+                        },
+                        "updateUserProfile": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "profile/v1/profiles",
+                            "method": "PATCH",
+                            "timeout": 15
+                        },
+                        "userCodeAuthenticate": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/device-authorization/sessions/create",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "userCodeAuthorize": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/device-authorization/user-codes/authorize",
+                            "method": "POST",
+                            "timeout": 15
+                        },
+                        "userCodeGenerate": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "session/v1/device-authorization/user-codes/generate",
+                            "method": "POST",
+                            "timeout": 15
+                        }
+                    },
+                    "extras": {
+                        "featureFlag": true,
+                        "isPasskeyEnabled": true
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "userEvents": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "submit": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "user-event/v1/events/submit",
+                            "method": "POST",
+                            "timeout": 15
+                        }
+                    },
+                    "extras": {
+                        "maxEventCount": 1024,
+                        "minDelaySeconds": 300
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                },
+                "voice": {
+                    "baseUrl": "https://api.edge-gateway.siriusxm.com/",
+                    "endPoints": {
+                        "voiceAsText": {
+                            "headers": {
+                                "Accept": "application/json; charset=utf-8",
+                                "Authorization": "Bearer {accessToken}",
+                                "Content-Type": "application/json; charset=utf-8"
+                            },
+                            "href": "voice/v1/voiceAsText",
+                            "method": "POST",
+                            "timeout": 15
+                        }
+                    },
+                    "retry": {
+                        "delaySeconds": 2,
+                        "maxRetryCount": 3
+                    }
+                }
+            },
+            "extras": {
+                "isTest": false
+            }
+        }
+    },
+    "application": {
+        "config": {
+            "content": {
+                "lookaround": {
+                    "pollingMs": 30000
+                }
+            },
+            "featureFlags": {
+                "tuneStart": true
+            }
+        }
+    }
+}

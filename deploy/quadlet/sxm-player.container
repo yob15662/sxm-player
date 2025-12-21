@@ -1,0 +1,27 @@
+# Sample Podman Quadlet unit for sxm-player
+# Copy to ~/.config/containers/systemd/sxm-player.container (user) or /etc/containers/systemd/ (system)
+# Secrets: create with `podman secret create sxm_password ./sxm_password.txt` (mounted at /run/secrets/sxm_password)
+# Start: systemctl --user daemon-reload && systemctl --user enable --now sxm-player.service
+
+[Unit]
+Description=SXM Player container
+
+[Container]
+Image=ghcr.io/yob15662/sxm-player:latest
+ContainerName=sxm-player
+AutoUpdate=registry
+PublishPort=8080:8080
+Environment=ASPNETCORE_URLS=http://0.0.0.0:8080
+# Set your SiriusXM username
+Environment=SXM__USERNAME="<username>"
+# Provide password via secret file path
+Environment=SXM_PASSWORD_FILE=/run/secrets/sxm_password
+# Pass host hostname into container (systemd %H)
+Environment=HOST_HOSTNAME=%H
+# Mount secret into the container at /run/secrets/sxm_password
+Secret=sxm_password,type=mount,target=/run/secrets/sxm_password
+# Map folder where playlists are generated
+Volume=/home/<user>/Playlists:/playlists:rw
+
+[Install]
+WantedBy=default.target

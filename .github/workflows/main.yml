@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+            dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore sxmplayer.sln
+
+      - name: Build
+        run: dotnet build sxmplayer.sln --configuration Release --no-restore
+
+    # Uncomment to enable tests
+    #   - name: Test
+    #     run: dotnet test SXMPlayer.Tests/SXMPlayer.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Publish SXMPlayer.Proxy
+        run: dotnet publish SXMPlayer.Proxy/SXMPlayer.Proxy.csproj --configuration Release --no-build --output ./artifact/SXMPlayer.Proxy
+
+      - name: Upload publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-publish
+          path: artifact/SXMPlayer.Proxy
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download publish artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: proxy-publish
+          path: .docker/app
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/sxm-player
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+          flavor: |
+            latest=false
+
+      - name: Set latest tag (main)
+        id: latest
+        if: github.ref == 'refs/heads/main'
+        run: echo "LATEST_TAG=ghcr.io/${{ github.repository_owner }}/sxm-player:latest" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.latest.outputs.LATEST_TAG }}
+          labels: ${{ steps.meta.outputs.labels }}
+
