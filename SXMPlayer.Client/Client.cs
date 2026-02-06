@@ -672,9 +672,9 @@ namespace SXMPlayer
         /// </summary>
         /// <returns>OK</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<Response8> UserProgressAsync(object body)
+        public virtual System.Threading.Tasks.Task<Response8> UserProgressAsync()
         {
-            return UserProgressAsync(body, System.Threading.CancellationToken.None);
+            return UserProgressAsync(System.Threading.CancellationToken.None);
         }
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
@@ -683,21 +683,15 @@ namespace SXMPlayer
         /// </summary>
         /// <returns>OK</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<Response8> UserProgressAsync(object body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<Response8> UserProgressAsync(System.Threading.CancellationToken cancellationToken)
         {
-            if (body == null)
-                throw new System.ArgumentNullException("body");
-
             var client_ = _httpClient;
             var disposeClient_ = false;
             try
             {
                 using (var request_ = new System.Net.Http.HttpRequestMessage())
                 {
-                    var json_ = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerSettings);
-                    var content_ = new System.Net.Http.ByteArrayContent(json_);
-                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json; charset=UTF-8");
-                    request_.Content = content_;
+                    request_.Content = new System.Net.Http.StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json");
                     request_.Method = new System.Net.Http.HttpMethod("POST");
                     request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
@@ -741,7 +735,7 @@ namespace SXMPlayer
                         else
                         {
                             var responseData_ = response_.Content == null ? null : await response_.Content.ReadAsStringAsync().ConfigureAwait(false);
-                            throw new ApiException("Unexpected error", status_, responseData_, headers_, null);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
                         }
                     }
                     finally
@@ -2467,6 +2461,21 @@ namespace SXMPlayer
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial record UserProgressData
+    {
+
+        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
+
+        [System.Text.Json.Serialization.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial record ChannelItemData
     {
 
@@ -3041,7 +3050,7 @@ namespace SXMPlayer
         public string? Delta { get; set; } = default!;
 
         [System.Text.Json.Serialization.JsonPropertyName("userProgressDataMap")]
-        public UserProgressDataMap? UserProgressDataMap { get; set; } = default!;
+        public System.Collections.Generic.IDictionary<string, UserProgressData>? UserProgressDataMap { get; set; } = default!;
 
         private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
 
@@ -3080,7 +3089,7 @@ namespace SXMPlayer
         public string? ProfileId { get; set; } = default!;
 
         [System.Text.Json.Serialization.JsonPropertyName("allDataMap")]
-        public AllDataMap? AllDataMap { get; set; } = default!;
+        public object? AllDataMap { get; set; } = default!;
 
         private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
 
@@ -3971,36 +3980,6 @@ namespace SXMPlayer
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record UserProgressDataMap
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("172c50d1-a714-3ef5-9e52-1f8352d78590")]
-        public _172c50d1A7143ef59e521f8352d78590? _172c50d1A7143ef59e521f8352d78590 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("25aed946-bf16-7ac8-3e25-ccf03750f27c")]
-        public _25aed946Bf167ac83e25Ccf03750f27c? _25aed946Bf167ac83e25Ccf03750f27c { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("f52ee840-9f5e-d36a-6f3f-1865168a2241")]
-        public F52ee8409f5eD36a6f3f1865168a2241? F52ee8409f5eD36a6f3f1865168a2241 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("0a787739-96cb-da7c-0bc4-70304f78188b")]
-        public _0a78773996cbDa7c0bc470304f78188b? _0a78773996cbDa7c0bc470304f78188b { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("c9fa716c-602d-a813-e74e-d5af59a519f3")]
-        public C9fa716c602dA813E74eD5af59a519f3? C9fa716c602dA813E74eD5af59a519f3 { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial record Page
     {
 
@@ -4015,78 +3994,6 @@ namespace SXMPlayer
 
         [System.Text.Json.Serialization.JsonPropertyName("containers")]
         public System.Collections.Generic.ICollection<Containers>? Containers { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record AllDataMap
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("a8465da9-2ce2-9b01-6679-e67c5066697b")]
-        public A8465da92ce29b016679E67c5066697b? A8465da92ce29b016679E67c5066697b { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("25de1705-19ad-6f6e-d45f-3f8775a37800")]
-        public _25de170519ad6f6eD45f3f8775a37800? _25de170519ad6f6eD45f3f8775a37800 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("c8f0548a-b80d-7800-fd68-57727d605292")]
-        public C8f0548aB80d7800Fd6857727d605292? C8f0548aB80d7800Fd6857727d605292 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("f9f80eb9-a253-6e02-8fc8-33fa6ba69bd4")]
-        public F9f80eb9A2536e028fc833fa6ba69bd4? F9f80eb9A2536e028fc833fa6ba69bd4 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("722a1329-63e3-3889-b9bc-db0c5c02464c")]
-        public _722a132963e33889B9bcDb0c5c02464c? _722a132963e33889B9bcDb0c5c02464c { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("952a67be-ecb0-338e-26a0-ff053381a9c9")]
-        public _952a67beEcb0338e26a0Ff053381a9c9? _952a67beEcb0338e26a0Ff053381a9c9 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("51789017-480a-387b-8cce-d65f98d9cdb7")]
-        public _51789017480a387b8cceD65f98d9cdb7? _51789017480a387b8cceD65f98d9cdb7 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("e4b5402c-c608-db84-ad15-4bc8e2cdccce")]
-        public E4b5402cC608Db84Ad154bc8e2cdccce? E4b5402cC608Db84Ad154bc8e2cdccce { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("44028691-9505-d523-3d98-1a58fd12b9a7")]
-        public _440286919505D5233d981a58fd12b9a7? _440286919505D5233d981a58fd12b9a7 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("49b0629a-cdaf-41a3-b34c-3df0284525a5")]
-        public _49b0629aCdaf41a3B34c3df0284525a5? _49b0629aCdaf41a3B34c3df0284525a5 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("ba107a8d-fb2d-571e-1894-f6ea03ed318a")]
-        public Ba107a8dFb2d571e1894F6ea03ed318a? Ba107a8dFb2d571e1894F6ea03ed318a { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("41f8b174-fb06-1707-aaa7-e74e109c2ee9")]
-        public _41f8b174Fb061707Aaa7E74e109c2ee9? _41f8b174Fb061707Aaa7E74e109c2ee9 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("6adef1b5-d812-9c10-7c6c-f05af4e27077")]
-        public _6adef1b5D8129c107c6cF05af4e27077? _6adef1b5D8129c107c6cF05af4e27077 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("c46c9810-6274-a715-a8b9-de9d4ac33873")]
-        public C46c98106274A715A8b9De9d4ac33873? C46c98106274A715A8b9De9d4ac33873 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("71dbb5a0-8995-958b-e139-b63b2864cabb")]
-        public _71dbb5a08995958bE139B63b2864cabb? _71dbb5a08995958bE139B63b2864cabb { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("06c9512d-b8ba-99fc-ffd7-4c0127858397")]
-        public _06c9512dB8ba99fcFfd74c0127858397? _06c9512dB8ba99fcFfd74c0127858397 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("f49737db-bea3-0c13-9834-b879fb1894c4")]
-        public F49737dbBea30c139834B879fb1894c4? F49737dbBea30c139834B879fb1894c4 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("12b72482-359b-4cd5-b105-1a837602bc35")]
-        public _12b72482359b4cd5B1051a837602bc35? _12b72482359b4cd5B1051a837602bc35 { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("e6333906-2e89-6c07-59d6-36d09248b8dc")]
-        public E63339062e896c0759d636d09248b8dc? E63339062e896c0759d636d09248b8dc { get; set; } = default!;
 
         private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
 
@@ -11322,156 +11229,6 @@ namespace SXMPlayer
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _172c50d1A7143ef59e521f8352d78590
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("state")]
-        public string? State { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("duration")]
-        public double? Duration { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("progress")]
-        public double? Progress { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _25aed946Bf167ac83e25Ccf03750f27c
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("state")]
-        public string? State { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("duration")]
-        public double? Duration { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("progress")]
-        public double? Progress { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record F52ee8409f5eD36a6f3f1865168a2241
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("state")]
-        public string? State { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("duration")]
-        public double? Duration { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("progress")]
-        public double? Progress { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _0a78773996cbDa7c0bc470304f78188b
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("state")]
-        public string? State { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("duration")]
-        public double? Duration { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("progress")]
-        public double? Progress { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record C9fa716c602dA813E74eD5af59a519f3
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("state")]
-        public string? State { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("duration")]
-        public double? Duration { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("progress")]
-        public double? Progress { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial record Entity
     {
 
@@ -11507,462 +11264,6 @@ namespace SXMPlayer
 
         [System.Text.Json.Serialization.JsonPropertyName("url")]
         public string? Url { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record A8465da92ce29b016679E67c5066697b
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _25de170519ad6f6eD45f3f8775a37800
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record C8f0548aB80d7800Fd6857727d605292
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record F9f80eb9A2536e028fc833fa6ba69bd4
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _722a132963e33889B9bcDb0c5c02464c
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _952a67beEcb0338e26a0Ff053381a9c9
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _51789017480a387b8cceD65f98d9cdb7
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record E4b5402cC608Db84Ad154bc8e2cdccce
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _440286919505D5233d981a58fd12b9a7
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _49b0629aCdaf41a3B34c3df0284525a5
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record Ba107a8dFb2d571e1894F6ea03ed318a
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _41f8b174Fb061707Aaa7E74e109c2ee9
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _6adef1b5D8129c107c6cF05af4e27077
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record C46c98106274A715A8b9De9d4ac33873
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _71dbb5a08995958bE139B63b2864cabb
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _06c9512dB8ba99fcFfd74c0127858397
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record F49737dbBea30c139834B879fb1894c4
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record _12b72482359b4cd5B1051a837602bc35
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
-
-        private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
-
-        [System.Text.Json.Serialization.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.2.0.0 (NJsonSchema v11.1.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial record E63339062e896c0759d636d09248b8dc
-    {
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityId")]
-        public string? EntityId { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
-        public string? EntityType { get; set; } = default!;
-
-        [System.Text.Json.Serialization.JsonPropertyName("createdTime")]
-        public double? CreatedTime { get; set; } = default!;
 
         private System.Collections.Generic.IDictionary<string, object>? _additionalProperties;
 

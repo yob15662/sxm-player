@@ -1169,7 +1169,7 @@ public class SiriusXMPlayer : IDisposable
                     }
                     else
                     {
-                        _logger.LogWarning($"Received segment {item.SegmentName} with no data");
+                        logger.LogWarning($"Received segment {item.SegmentName} with no data");
                     }
                 }
             }

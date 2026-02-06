@@ -85,8 +85,8 @@ public class IcecastStreamer
      {
          var combinedCt = combinedCts.Token;
          long lastMediaSequence = -1;
-         var processedSegments = new ConcurrentDictionary<string, bool>();
-         const int maxProcessedSegments = 20; // Avoid re-queueing recent segments
+         var processedSegments = new HashSet<string>();
+const int maxProcessedSegments = 50; // Avoid re-queueing recent segments
          string? lastChannelId = null;
          bool useCache = true;
 
@@ -178,7 +178,7 @@ public class IcecastStreamer
                              if (segmentSequence > lastMediaSequence)
                              {
                                  var segmentName = l.Split('/').Last();
-                                 if (processedSegments.TryAdd(segmentName, true))
+                                 if (processedSegments.Add(segmentName))
                                  {
                                      var parts = l.Split('/');
                                      var version = parts[^2];
@@ -225,7 +225,7 @@ public class IcecastStreamer
 
                                      if (processedSegments.Count > maxProcessedSegments)
                                      {
-                                         processedSegments.TryRemove(processedSegments.Keys.First(), out _);
+                                         processedSegments.Remove(processedSegments.First());
                                      }
                                  }
                              }
@@ -233,7 +233,16 @@ public class IcecastStreamer
                          }
                      }
                      // Wait for approx one segment duration before fetching next playlist
-                     await Task.Delay(TimeSpan.FromSeconds((targetDuration > 0 ? targetDuration - 1 : 2.0) * (Math.Max(1, segmentsSent - 2))), combinedCt);
+                     // Only delay if we actually sent segments (to avoid hammering the playlist)
+                     if (segmentsSent > 0)
+                     {
+                         await Task.Delay(TimeSpan.FromSeconds(targetDuration > 0 ? targetDuration - 1 : 1.0), combinedCt);
+                     }
+                     else
+                     {
+                         // No new segments found, wait a bit before retrying
+                         await Task.Delay(500, combinedCt);
+                     }
                  }
                  catch (OperationCanceledException)
                  {

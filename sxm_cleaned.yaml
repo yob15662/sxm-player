@@ -28,8 +28,22 @@ tags:
   - name: user-event
 components:
   schemas:
+    UserProgressData:
+      type: object
+      properties:
+      entityId:
+        type: string
+        format: uuid
+      entityType:
+        type: string
+      state:
+        type: string
+      duration:
+        type: number
+      progress:
+        type: number
     ChannelItemData:
-      type: "object"            
+      type: "object"
       properties:
         decorations:
           type: "object"
@@ -60,7 +74,7 @@ components:
             pxp:
               type: "boolean"
         entity:
-          $ref: '#/components/schemas/EntityData'
+          $ref: "#/components/schemas/EntityData"
         actions:
           type: "object"
           properties:
@@ -387,10 +401,10 @@ components:
             countryCode:
               type: "string"
             region:
-              type: "string"          
+              type: "string"
         experiments:
           type: "array"
-          items: {}          
+          items: {}
 
     ErrorModel:
       type: object
@@ -518,6 +532,10 @@ components:
     Metadata:
       type: object
       properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataItem"      
         live:
           type: object
           properties:
@@ -738,7 +756,6 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/MetadataItem"
-        
   securitySchemes:
     JWT:
       description: "You can create a JSON Web Token (JWT) during auth.
@@ -877,8 +894,8 @@ paths:
                                                 type: string
                                               timeout:
                                                 type: number
-                                          ? createPaymentMethodsFirstCardSetupToken
-                                          : type: object
+                                          createPaymentMethodsFirstCardSetupToken:
+                                            type: object
                                             properties:
                                               headers:
                                                 type: object
@@ -4455,14 +4472,12 @@ paths:
       tags:
         - ondemand
       summary: ondemand
-      parameters: []
       requestBody:
-        required: true
-        content:
-          application/json; charset=UTF-8:
-            schema:
-              type: object
-              properties: {}
+      required: true
+      content:
+        application/json; charset=UTF-8:
+        schema:
+          type: object
       responses:
         200:
           description: OK
@@ -4475,75 +4490,15 @@ paths:
                     type: string
                   userProgressDataMap:
                     type: object
-                      172c50d1-a714-3ef5-9e52-1f8352d78590:
-                        type: object
-                        properties:
-                          entityId:
-                            type: string
-                          entityType:
-                            type: string
-                          state:
-                            type: string
-                          duration:
-                            type: number
-                          progress:
-                            type: number
-                      25aed946-bf16-7ac8-3e25-ccf03750f27c:
-                        type: object
-                        properties:
-                          entityId:
-                            type: string
-                          entityType:
-                            type: string
-                          state:
-                            type: string
-                          duration:
-                            type: number
-                          progress:
-                            type: number
-                      f52ee840-9f5e-d36a-6f3f-1865168a2241:
-                        type: object
-                        properties:
-                          entityId:
-                            type: string
-                          entityType:
-                            type: string
-                          state:
-                            type: string
-                          duration:
-                            type: number
-                          progress:
-                            type: number
-                      0a787739-96cb-da7c-0bc4-70304f78188b:
-                        type: object
-                        properties:
-                          entityId:
-                            type: string
-                          entityType:
-                            type: string
-                          state:
-                            type: string
-                          duration:
-                            type: number
-                          progress:
-                            type: number
-                      c9fa716c-602d-a813-e74e-d5af59a519f3:
-                        type: object
-                        properties:
-                          entityId:
-                            type: string
-                          entityType:
-                            type: string
-                          state:
-                            type: string
-                          duration:
-                            type: number
-                          progress:
-                            type: number
-        default:
-          description: Unexpected error
-          content:
-            application/json: {}
+                    # This allows any string (GUID) as a key
+                    additionalProperties:
+                      $ref: "#/components/schemas/UserProgressData"
+      default:
+        description: Unexpected error
+        content:
+        application/json:
+          schema:
+            type: object
   /page/v1/page/library/{id}:
     get:
       security:
@@ -5783,8 +5738,8 @@ paths:
                         type: string
                       update_payment_info_agreement_us_web:
                         type: string
-                      ? v1-ca-sxm-sxm_s_1-fo_1m1_0-io_1m6_500-bo_1mx_fp-cad-di_planname
-                      : type: string
+                      v1-ca-sxm-sxm_s_1-fo_1m1_0-io_1m6_500-bo_1mx_fp-cad-di_planname:
+                        type: string
                       v1-ca-sxm-sxm_s_1-fo_1m1_0-x-bo_1mx_fp-cad-am_planname:
                         type: string
                       v1-ca-sxm-sxm_s_1-fo_1m1_0-x-bo_1mx_fp-cad-ap_planname:
@@ -5855,8 +5810,8 @@ paths:
                         type: string
                       v1-ca-sxm-sxm_s_2-x-x-bo_1mx_fp-cad-ro_planname:
                         type: string
-                      ? v1-us-sxm-sxm_s_1-fo_1m1_0-io_1m6_500-bo_1mx_fp-usd-di_planname
-                      : type: string
+                      v1-us-sxm-sxm_s_1-fo_1m1_0-io_1m6_500-bo_1mx_fp-usd-di_planname:
+                        type: string
                       v1-us-sxm-sxm_s_1-fo_1m1_0-x-bo_1mx_fp-usd-am_planname:
                         type: string
                       v1-us-sxm-sxm_s_1-fo_1m1_0-x-bo_1mx_fp-usd-ap_planname:
@@ -5881,8 +5836,8 @@ paths:
                         type: string
                       v1-us-sxm-sxm_s_1-fo_90d1_0-x-bo_1mx_fp-usd-ro_planname:
                         type: string
-                      ? v1-us-sxm-sxm_s_1-x-io_12m1_6000-bo_1mx_fp-usd-di_planname
-                      : type: string
+                      v1-us-sxm-sxm_s_1-x-io_12m1_6000-bo_1mx_fp-usd-di_planname:
+                        type: string
                       v1-us-sxm-sxm_s_1-x-io_1m1_100-bo_1mx_fp-usd-di_planname:
                         type: string
                       v1-us-sxm-sxm_s_1-x-io_1m12_499-bo_1mx_fp-usd-di_planname:
@@ -6173,10 +6128,10 @@ paths:
                         type: string
                       sxm_cs_pp_disclosure_ca:
                         type: string
-                      ? appwelcomepage_button1_eligible_included_trial_length_apple
-                      : type: string
-                      ? appwelcomepage_button1_eligible_included_trial_length_google
-                      : type: string
+                      appwelcomepage_button1_eligible_included_trial_length_apple:
+                        type: string
+                      appwelcomepage_button1_eligible_included_trial_length_google:
+                        type: string
                   experience:
                     type: object
                     properties:
@@ -6238,8 +6193,8 @@ paths:
                         type: string
                       cta_settings_sign_out_sign_out:
                         type: string
-                      ? cta_settings_terms_policies_customer_agreement_ca_web_ca_web
-                      : type: string
+                      cta_settings_terms_policies_customer_agreement_ca_web_ca_web:
+                        type: string
                       cta_settings_terms_policies_customer_agreement_web:
                         type: string
                       cta_settings_terms_policies_privacy_policy_ca_web_ca_web:
@@ -6548,8 +6503,8 @@ paths:
                         type: string
                       podcast_page_subtext_gear_settings_sheet_auto_downloads:
                         type: string
-                      ? podcast_page_subtext_gear_settings_sheet_push_notifications
-                      : type: string
+                      podcast_page_subtext_gear_settings_sheet_push_notifications:
+                        type: string
                       podcasts_all_episodes_button_androidtv:
                         type: string
                       podcasts_all_episodes_button_firetv:
@@ -6622,12 +6577,12 @@ paths:
                         type: string
                       settings_app_settings_cellular_data_usage_best_available:
                         type: string
-                      ? settings_app_settings_cellular_data_usage_best_available_subtext
-                      : type: string
+                      settings_app_settings_cellular_data_usage_best_available_subtext:
+                        type: string
                       settings_app_settings_cellular_data_usage_data_saver:
                         type: string
-                      ? settings_app_settings_cellular_data_usage_data_saver_subtext
-                      : type: string
+                      settings_app_settings_cellular_data_usage_data_saver_subtext:
+                        type: string
                       settings_app_settings_cellular_data_usage_title:
                         type: string
                       settings_app_settings_nav_title:
@@ -8874,7 +8829,7 @@ paths:
                                         type: string
                                   entity:
                                     schema:
-                                      ref: '#/components/schemas/EntityData'                                
+                                      ref: "#/components/schemas/EntityData"
                                   actions:
                                     type: object
                                     properties:
@@ -9277,7 +9232,7 @@ paths:
                             back1Hour:
                               type: string
                         metadata:
-                            $ref: '#/components/schemas/Metadata'
+                          $ref: "#/components/schemas/Metadata"
         default:
           description: Unexpected error
           content:
@@ -9331,10 +9286,10 @@ paths:
                           logicalClock:
                             type: object
                             properties:
-                                counter:
-                                  type: number
-                                epoch:
-                                  type: number
+                              counter:
+                                type: number
+                              epoch:
+                                type: number
                       start:
                         type: object
                         properties:
@@ -9364,10 +9319,10 @@ paths:
                           logicalClock:
                             type: object
                             properties:
-                                counter:
-                                  type: number
-                                epoch:
-                                  type: number
+                              counter:
+                                type: number
+                              epoch:
+                                type: number
 
       responses:
         202:
@@ -9464,7 +9419,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Metadata'
+                $ref: "#/components/schemas/Metadata"
         default:
           description: Unexpected error
           content:
