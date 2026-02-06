@@ -22,20 +22,30 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-            dotnet-version: '9.0.x'
+            dotnet-version: '10.0.x'
+
+      - name: Set build version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="1.${GITHUB_RUN_NUMBER}.0"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore sxmplayer.sln
 
       - name: Build
-        run: dotnet build sxmplayer.sln --configuration Release --no-restore
+        run: dotnet build sxmplayer.sln --configuration Release --no-restore /p:Version=${{ steps.version.outputs.version }}
 
     # Uncomment to enable tests
     #   - name: Test
     #     run: dotnet test SXMPlayer.Tests/SXMPlayer.Tests.csproj --configuration Release --no-build --verbosity normal
 
       - name: Publish SXMPlayer.Proxy
-        run: dotnet publish SXMPlayer.Proxy/SXMPlayer.Proxy.csproj --configuration Release --no-build --output ./artifact/SXMPlayer.Proxy
+        run: dotnet publish SXMPlayer.Proxy/SXMPlayer.Proxy.csproj --configuration Release --no-build --output ./artifact/SXMPlayer.Proxy /p:Version=${{ steps.version.outputs.version }}
 
       - name: Upload publish artifact
         uses: actions/upload-artifact@v4
