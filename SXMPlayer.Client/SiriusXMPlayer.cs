@@ -1,22 +1,14 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.FileSystemGlobbing.Internal;
 using Microsoft.Extensions.Logging;
-using MQTTnet;
-using MQTTnet.Client;
-using Polly;
-using Polly.Extensions.Http;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 
 namespace SXMPlayer;
 
@@ -259,7 +251,7 @@ public class SiriusXMPlayer : IDisposable
         var itemType = isChannelExtra ? "xtra-channel-track" : "cut-linear";
         Position position;
         Position2 position2;
-        actions action;
+        Actions3 action;
         var hasStarted = false;
         if (isChannelExtra)
         {
@@ -655,15 +647,6 @@ public class SiriusXMPlayer : IDisposable
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Chrome", "101.0.4911.0"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Safari", "537.36"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Edg", "101.0.1193.0"));
-    }
-
-    static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-    {
-        return HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .OrResult(msg => msg.StatusCode == System.Net.HttpStatusCode.NotFound)
-            .WaitAndRetryAsync(6, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2,
-                                                                        retryAttempt)));
     }
 
     private static string[] SplitLines(string? res)
