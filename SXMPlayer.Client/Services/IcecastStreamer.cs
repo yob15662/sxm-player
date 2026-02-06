@@ -43,7 +43,7 @@ public class IcecastStreamer
         _player = player;
     }
 
-    public record SegmentWorkItem(string SegmentName, string Version, long MediaSequence, byte[]? Key, byte[]? IV);
+    public record SegmentWorkItem(string SegmentName, string Version, long MediaSequence, Memory<byte>? AudioData);
 
     /// <summary>
     /// Cancels playlist producers for clients that are marked as inactive.
@@ -182,7 +182,39 @@ public class IcecastStreamer
                                  {
                                      var parts = l.Split('/');
                                      var version = parts[^2];
-                                     var item = new SegmentWorkItem(segmentName, version, segmentSequence, currentKey, currentIV);
+
+                                     // Fetch and decrypt the segment here in the producer
+                                     byte[]? audioData = null;
+                                     try
+                                     {
+                                         var currentChannelData = await channelIdProvider();
+                                         using var segStream = await _player.GetSegment(currentChannelData.Entity!.Id!, version, segmentName, listener);
+
+                                         if (currentKey is not null)
+                                         {
+                                             // Segment is encrypted, decrypt it
+                                             using var ms = new MemoryStream();
+                                             await segStream.CopyToAsync(ms);
+                                             var cipher = ms.ToArray();
+                                             var iv = currentIV ?? HlsEncryptionService.BuildIVFromSequence(segmentSequence);
+                                             audioData = HlsEncryptionService.DecryptAes128Cbc(cipher, currentKey, iv);
+                                         }
+                                         else
+                                         {
+                                             // Segment is not encrypted, just read it
+                                             using var ms = new MemoryStream();
+                                             await segStream.CopyToAsync(ms);
+                                             audioData = ms.ToArray();
+                                         }
+                                     }
+                                     catch (Exception ex)
+                                     {
+                                         _logger.LogError(ex, $"Error fetching/decrypting segment {segmentName}");
+                                         segmentSequence++;
+                                         continue;
+                                     }
+
+                                     var item = new SegmentWorkItem(segmentName, version, segmentSequence, audioData is not null ? new Memory<byte>(audioData) : null);
                                      await writer.WriteAsync(item, combinedCt);
                                      if (listener is not null)
                                      {
@@ -269,7 +301,7 @@ public class IcecastStreamer
         return bytesUntilMeta;
     }
 
-    public async Task<int> WriteWithIcyAsync(byte[] data, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
+    public async Task<int> WriteWithIcyAsync(ReadOnlyMemory<byte> data, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
     {
         int offset = 0;
         int remaining = data.Length;
@@ -289,7 +321,7 @@ public class IcecastStreamer
             while (writeBudget > 0)
             {
                 int chunk = Math.Min(writeBudget, OutputChunkSize);
-                await ctx.Response.Body.WriteAsync(data.AsMemory(offset, chunk), ct);
+                await ctx.Response.Body.WriteAsync(data.Slice(offset, chunk), ct);
                 offset += chunk;
                 remaining -= chunk;
                 writeBudget -= chunk;
@@ -382,7 +414,7 @@ public class IcecastStreamer
         private readonly Func<byte[]> _metadataFactory;
 
         private int _bytesUntilMeta;
-        private byte[]? _metadataBuffer;
+        private Memory<byte>? _metadataBuffer;
         private int _metadataOffset;
         private bool _disposed;
 
@@ -462,13 +494,14 @@ public class IcecastStreamer
                 // If we are currently emitting a metadata block, write from it first
                 if (_metadataBuffer is not null)
                 {
-                    int metaRemaining = _metadataBuffer.Length - _metadataOffset;
+                    var metaSpan = _metadataBuffer.Value.Span;
+                    int metaRemaining = metaSpan.Length - _metadataOffset;
                     int toCopy = Math.Min(metaRemaining, count - totalWritten);
-                    Array.Copy(_metadataBuffer, _metadataOffset, buffer, offset + totalWritten, toCopy);
+                    metaSpan.Slice(_metadataOffset, toCopy).CopyTo(buffer.AsSpan(offset + totalWritten, toCopy));
                     _metadataOffset += toCopy;
                     totalWritten += toCopy;
 
-                    if (_metadataOffset >= _metadataBuffer.Length)
+                    if (_metadataOffset >= metaSpan.Length)
                     {
                         // Finished metadata, reset state and continue with audio
                         _metadataBuffer = null;
@@ -488,7 +521,7 @@ public class IcecastStreamer
                 // If it's time to inject new metadata and we are not already emitting one
                 if (_bytesUntilMeta == 0 && _metadataBuffer is null)
                 {
-                    _metadataBuffer = _metadataFactory();
+                    _metadataBuffer = new Memory<byte>(_metadataFactory());
                     _metadataOffset = 0;
                     continue; // loop will write metadata on next iteration
                 }
@@ -499,7 +532,7 @@ public class IcecastStreamer
                 {
                     // The caller requested zero additional audio bytes but we still owe a metadata block
                     // Prepare metadata for the next iteration
-                    _metadataBuffer = _metadataFactory();
+                    _metadataBuffer = new Memory<byte>(_metadataFactory());
                     _metadataOffset = 0;
                     continue;
                 }

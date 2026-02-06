@@ -1150,7 +1150,7 @@ public class SiriusXMPlayer : IDisposable
             // Force to resend metadata on next segment
             icecastStreamer.ClearMetadataState();
             // Producer-consumer setup
-            var segmentQueue = System.Threading.Channels.Channel.CreateBounded<IcecastStreamer.SegmentWorkItem>(new BoundedChannelOptions(10) { FullMode = BoundedChannelFullMode.Wait });
+            var segmentQueue = System.Threading.Channels.Channel.CreateBounded<IcecastStreamer.SegmentWorkItem>(new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait });
 
             Func<string> channelIdProvider = () => (channelId == CURRENT_ID ? _currentChannel?.Entity.Id : realChannelId) ?? throw new InvalidOperationException("no channel available");
 
@@ -1161,24 +1161,16 @@ public class SiriusXMPlayer : IDisposable
             {
                 await foreach (var item in segmentQueue.Reader.ReadAllAsync(ct))
                 {
-                    var current2 = await GetCurrentChannel() ?? throw new InvalidOperationException("no channel available");
-                    using var segStream = await GetSegmentInternal(current2.Entity.Id!, item.Version, item.SegmentName, listener);
-
-                    if (item.Key is not null)
+                    // Data is already decrypted by the producer
+                    if (item.AudioData is not null)
                     {
-                        using var ms = new MemoryStream();
-                        await segStream.CopyToAsync(ms, ct);
-                        var cipher = ms.ToArray();
-                        var iv = item.IV ?? HlsEncryptionService.BuildIVFromSequence(item.MediaSequence);
-                        var plain = HlsEncryptionService.DecryptAes128Cbc(cipher, item.Key, iv);
-                        bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(plain, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
+                        bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(item.AudioData.Value, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
+                        listener.LastActivity = DateTimeOffset.Now;
                     }
                     else
                     {
-                        bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(segStream, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
+                        _logger.LogWarning($"Received segment {item.SegmentName} with no data");
                     }
-
-                    listener.LastActivity = DateTimeOffset.Now;
                 }
             }
             catch (OperationCanceledException)
