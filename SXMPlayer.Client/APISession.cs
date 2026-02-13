@@ -236,7 +236,10 @@ public class APISession
         _session = new HttpClientHandler();
         if (_CookieContainer is null)
             _CookieContainer = new CookieContainer();
-        _client = new HttpClient(_session) { };
+        _client = new HttpClient(_session) 
+        { 
+            Timeout = TimeSpan.FromSeconds(60) // 60s per attempt with Polly handling retries
+        };
         if (baseAddress is null)
             throw new InvalidCastException("Invalid Base Address");
         _client.BaseAddress = baseAddress;
@@ -268,13 +271,13 @@ public class APISession
 
     public void CheckTokenExpiry()
     {
-        var expiryTime = DateTimeOffset.Now;
-        if (AccessToken != null && (AccessToken.AccessTokenExpiresAt - expiryTime).TotalMinutes < 10)
+        var expiryTime = DateTimeOffset.UtcNow;
+        if (AccessToken != null && (AccessToken.AccessTokenExpiresAt.ToUniversalTime() - expiryTime).TotalMinutes < 10)
         {                
             logger.LogInformation("User token expiring in 10 minutes, refreshing");
             AccessToken = null;
         }
-        if (Tokens != null && (Tokens.AnonExpiry - expiryTime).TotalMinutes < 10)
+        if (Tokens != null && (Tokens.AnonExpiry.ToUniversalTime() - expiryTime).TotalMinutes < 10)
         {
             logger.LogInformation("Anonymous token expiring in 10 minutes, refreshing");
             Tokens = null;

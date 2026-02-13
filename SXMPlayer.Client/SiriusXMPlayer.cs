@@ -9,6 +9,8 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Globalization;
 using System.Text;
+using Polly;
+using Polly.Retry;
 
 namespace SXMPlayer;
 
@@ -96,6 +98,7 @@ public class SiriusXMPlayer : IDisposable
     private readonly HlsEncryptionService encryptionService;
     private readonly PlaylistService playlistService;
     private readonly IcecastStreamer icecastStreamer;
+    private readonly ResiliencePipeline<HttpResponseMessage> httpRetryPipeline;
 
     //status - every 50 seconds
     //https://api.edge-gateway.siriusxm.com/playback/stream-enforcement/v1/status
@@ -144,6 +147,26 @@ public class SiriusXMPlayer : IDisposable
         playlistService = new PlaylistService(session, logger);
         // pass a provider for now-playing into IcecastStreamer
         icecastStreamer = new IcecastStreamer(logger, this);
+
+        // Configure Polly resilience pipeline for HTTP retries
+        httpRetryPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+            {
+                MaxRetryAttempts = 3,
+                Delay = TimeSpan.FromSeconds(1),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                    .HandleResult(response => !response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Forbidden)
+                    .Handle<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
+                    .Handle<HttpRequestException>(),
+                OnRetry = args =>
+                {
+                    logger.LogWarning($"HTTP request retry attempt {args.AttemptNumber} after {args.RetryDelay.TotalSeconds:F1}s delay. Outcome: {args.Outcome.Exception?.Message ?? args.Outcome.Result?.StatusCode.ToString()}");
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
     }
 
     public void Dispose()
@@ -340,10 +363,10 @@ public class SiriusXMPlayer : IDisposable
                 return await GetStreamPlaylist(currentChannel.Entity.Id, listener, channelId, useCache);
             }
             else
-            if (cachedPlaylist is null && currentChannel is null)
-            {
-                throw new InvalidOperationException("Cannot get current playlist - no channel selected");
-            }
+                if (cachedPlaylist is null && currentChannel is null)
+                {
+                    throw new InvalidOperationException("Cannot get current playlist - no channel selected");
+                }
             return cachedPlaylist;
         }
         if (channelId == CURRENT_ID)
@@ -568,16 +591,25 @@ public class SiriusXMPlayer : IDisposable
         //var currentTrack = await GetNowPlaying(channel, ts);
         var url = $"{stream.path}{version}/{segmentId}";
         var parameters = getQueryParameters();
-        var output = await GetHttpResponseMessage(url, parameters);
-        // read output to byte array
-        if (output != null)
+
+        try
         {
-            var content = await output.Content.ReadAsByteArrayAsync();
-            if (cacheManager != null)
-                await cacheManager.SaveFile(segmentId, content, DateTimeOffset.Now.AddHours(1));
-            return new MemoryStream(content);
+            var output = await GetHttpResponseMessage(url, parameters);
+            // read output to byte array
+            if (output != null)
+            {
+                var content = await output.Content.ReadAsByteArrayAsync();
+                if (cacheManager != null)
+                    await cacheManager.SaveFile(segmentId, content, DateTimeOffset.Now.AddHours(1));
+                return new MemoryStream(content);
+            }
+            return await output.Content.ReadAsStreamAsync();
         }
-        return await output.Content.ReadAsStreamAsync();
+        catch (Exception ex)
+        {
+            logger.LogError(ex, $"Error fetching/decrypting segment {segmentId}");
+            throw;
+        }
     }
 
     //#EXT-X-KEY:METHOD=AES-128,URI="https://api.edge-gateway.siriusxm.com/playback/key/v1/00000000-0000-0000-0000-000000000000"
@@ -661,25 +693,26 @@ public class SiriusXMPlayer : IDisposable
     {
         var builder = new UriBuilder(url);
         builder.Query = string.Join("&", parameters.Select(kvp => $"{kvp.Key}={Uri.EscapeDataString(kvp.Value)}"));
-        //var res = await GetRetryPolicy().ExecuteAsync(async () =>
-        //{
-        var request = new HttpRequestMessage() { RequestUri = builder.Uri, Method = HttpMethod.Get };
-        ConfigureRequest(request);
 
-        var response = await session.GetHttpClient().SendAsync(request);
-        //});
-
-        if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        return await httpRetryPipeline.ExecuteAsync(async ct =>
         {
-            var responseData_ = response.Content == null ? null : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            throw new ApiException("Unexpected error", (int)response.StatusCode, responseData_, null, null);
-        }
-        if (response.StatusCode != System.Net.HttpStatusCode.OK)
-        {
-            throw new InvalidOperationException($"Received status code {response.StatusCode} for url \'{url}\'");
-        }
+            var request = new HttpRequestMessage() { RequestUri = builder.Uri, Method = HttpMethod.Get };
+            ConfigureRequest(request);
 
-        return response;
+            var response = await session.GetHttpClient().SendAsync(request, ct);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                var responseData_ = response.Content == null ? null : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                throw new ApiException("Unexpected error", (int)response.StatusCode, responseData_, null, null);
+            }
+            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+            {
+                throw new InvalidOperationException($"Received status code {response.StatusCode} for url \'{url}\'");
+            }
+
+            return response;
+        }, tokenSource.Token);
     }
 
     private PeriodicTimer progressTimer;
