@@ -368,3 +368,4 @@ FodyWeavers.xsd
 /SXMPlayer.Proxy/tokens.json
 /SXMPlayer.Proxy/currentChannel.json
 /SXMPlayer.Proxy/access.json
+/SXMPlayer.Proxy/appsettings.local.json
