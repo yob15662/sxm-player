@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
 using SXMPlayer;
@@ -52,21 +54,26 @@ namespace SXMPlayer.Tests
         [Fact]
         public async Task TestIcyMetadataParsing()
         {
-            // Construct an IcecastStreamer with minimal dependencies for testing
-            var session = new APISession("http://localhost", _loggerFactoryMock.Object, Directory.GetCurrentDirectory(), "user", "pass");
-            var player = new SiriusXMPlayer(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
             var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
             playerMock.Setup(p => p.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
-            var icecast = new IcecastStreamer(_loggerMock.Object, playerMock.Object);
+
+            var metadataBuilder = new IcyMetadataBuilder();
+            var streamWriter = new IcyStreamWriter(metadataBuilder, _loggerMock.Object, () => playerMock.Object.GetNowPlaying());
 
             var testData = 1000400;
-            //generate a random byte array of size 60000
             byte[] musicData = new byte[testData];
             new Random().NextBytes(musicData);
-            var stream = new MemoryStream(musicData);
-            var icyStream = await icecast.CreateICYStream(stream, ICY_SIZE);
 
-            using var reader = new BinaryReader(icyStream);
+            // Use IcyStreamWriter output via HttpContext response body
+            var ctx = new DefaultHttpContext();
+            var output = new MemoryStream();
+            ctx.Response.Body = output;
+
+            int bytesUntilMeta = ICY_SIZE;
+            bytesUntilMeta = await streamWriter.WriteAsync(musicData.AsMemory(), ctx, injectMetadata: true, metadataInterval: ICY_SIZE, bytesUntilMeta, CancellationToken.None);
+
+            output.Position = 0;
+            using var reader = new BinaryReader(output);
 
             // Reconstruct original audio by stripping ICY metadata blocks while validating titles
             using var reconstructed = new MemoryStream();
@@ -97,7 +104,6 @@ namespace SXMPlayer.Tests
                 }
                 catch (EndOfStreamException)
                 {
-                    // No metadata at EOF (shouldn't normally happen after a full chunk)
                     throw new InvalidDataException("invalid ICY stream: expected metadata length byte");
                 }
                 int metadataSize = metaLenByte * 16;
@@ -107,23 +113,16 @@ namespace SXMPlayer.Tests
                 if (metadataSize > 0)
                 {
                     byte[] metadata = reader.ReadBytes(metadataSize);
-                    // If the stream ended unexpectedly, stop
                     if (metadata.Length < metadataSize)
                     {
-                        throw new InvalidDataException("invalid ICY stream: expected metadata length byte");
+                        throw new InvalidDataException("invalid ICY stream: expected metadata payload");
                     }
-                    try
+
+                    string metadataString = Encoding.UTF8.GetString(metadata);
+                    var match = Regex.Match(metadataString, "StreamTitle='([^;]*)';");
+                    if (match.Success)
                     {
-                        string metadataString = Encoding.UTF8.GetString(metadata);
-                        var match = Regex.Match(metadataString, "StreamTitle='([^;]*)';");
-                        if (match.Success)
-                        {
-                            parsedTitle = match.Groups[1].Value;
-                        }
-                    }
-                    catch
-                    {
-                        throw;
+                        parsedTitle = match.Groups[1].Value;
                     }
                 }
 
@@ -139,7 +138,6 @@ namespace SXMPlayer.Tests
                 }
             }
 
-            // Ensure we saw at least one metadata block with the expected title
             Assert.True(sawFirstTitle);
 
             // Compare reconstructed audio with original

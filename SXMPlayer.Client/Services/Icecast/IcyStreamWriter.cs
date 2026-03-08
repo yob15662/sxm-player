@@ -14,6 +14,7 @@ public class IcyStreamWriter
 {
     private readonly IcyMetadataBuilder _metadataBuilder;
     private readonly ILogger _logger;
+    private readonly Func<NowPlayingData?>? _nowPlayingProvider;
 
     /// <summary>
     /// Gets or sets the maximum size (in bytes) of each HTTP write to the response body.
@@ -21,10 +22,11 @@ public class IcyStreamWriter
     /// </summary>
     public int OutputChunkSize { get; set; } = 16 * 1024; // 16 KiB default
 
-    public IcyStreamWriter(IcyMetadataBuilder metadataBuilder, ILogger logger)
+    public IcyStreamWriter(IcyMetadataBuilder metadataBuilder, ILogger logger, Func<NowPlayingData?>? nowPlayingProvider = null)
     {
         _metadataBuilder = metadataBuilder ?? throw new ArgumentNullException(nameof(metadataBuilder));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _nowPlayingProvider = nowPlayingProvider;
     }
 
     /// <summary>
@@ -97,7 +99,7 @@ public class IcyStreamWriter
             // Inject metadata if due
             if (bytesUntilNextMetadata <= 0)
             {
-                var meta = _metadataBuilder.BuildMetadataBlock(null); // Caller provides now-playing via metadata builder
+                var meta = _metadataBuilder.BuildMetadataBlock(_nowPlayingProvider?.Invoke());
                 await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
                 bytesUntilNextMetadata = metadataInterval;
             }

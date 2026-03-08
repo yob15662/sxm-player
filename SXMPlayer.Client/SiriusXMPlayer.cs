@@ -1147,13 +1147,13 @@ public class SiriusXMPlayer : IDisposable
         {
             logger.LogInformation($"Injecting ICY metadata every {metaInt} bytes for client {ctx.Connection.RemoteIpAddress} (UA: {userAgent})");
             ctx.Response.Headers["icy-metaint"] = metaInt.ToString();
-            var np = GetNowPlaying();
-            if (np is not null)
-            {
-                ctx.Response.Headers["icy-name"] = $"Sirius XM - {current.Entity.ChannelName}";
-            }
+
         }
-        // Conservative headers for legacy clients
+        var np = GetNowPlaying();
+        if (np is not null)
+        {
+            ctx.Response.Headers["icy-name"] = $"Sirius XM - {current.Entity.ChannelName}";
+        }        // Conservative headers for legacy clients
         ctx.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
         ctx.Response.Headers["Pragma"] = "no-cache";
         ctx.Response.Headers["Expires"] = "0";

@@ -44,7 +44,7 @@ public class IcecastStreamer
         _player = player ?? throw new ArgumentNullException(nameof(player));
         _metadataBuilder = new IcyMetadataBuilder();
         _segmentProducer = new HlsSegmentProducer(player, logger);
-        _streamWriter = new IcyStreamWriter(_metadataBuilder, logger);
+        _streamWriter = new IcyStreamWriter(_metadataBuilder, logger, () => _player.GetNowPlaying());
     }
 
     // Re-export SegmentWorkItem for backwards compatibility
@@ -138,23 +138,6 @@ public class IcecastStreamer
     public void ClearMetadataState()
     {
         _metadataBuilder.ClearState();
-    }
-
-    /// <summary>
-    /// Creates a stream wrapper that injects ICY metadata during stream reads.
-    /// </summary>
-    public Task<System.IO.Stream> CreateICYStream(System.IO.Stream audioStream, int icyMetaInt)
-    {
-        _metadataBuilder.ClearState();
-        if (audioStream is null) throw new ArgumentNullException(nameof(audioStream));
-        if (!audioStream.CanRead) throw new ArgumentException("Source stream must be readable", nameof(audioStream));
-        if (icyMetaInt <= 0) throw new ArgumentOutOfRangeException(nameof(icyMetaInt));
-
-        System.IO.Stream wrapper = new IcyStreamWrapper(
-            audioStream,
-            icyMetaInt,
-            () => _metadataBuilder.BuildMetadataBlock(_player.GetNowPlaying()));
-        return Task.FromResult(wrapper);
     }
 
     /// <summary>
