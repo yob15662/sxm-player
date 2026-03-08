@@ -970,6 +970,14 @@ public class SiriusXMPlayer : IDisposable
                 return stream1;
             }
         }
+        catch (HttpRequestException hex)
+        {
+            logger.LogWarning(hex, $"HTTP error during TuneSource - {hex.Message} - retrying - retries={retries}");
+            await Task.Delay(TimeSpan.FromSeconds(5 * (retries + 1)), tokenSource.Token);
+            await session.ReLogin();
+            InitializeActivityTimer();
+            return await TuneSource(channelId, retries + 1);
+        }
         catch (ApiException aex)
         {
             if (aex.StatusCode == 200)
