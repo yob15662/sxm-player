@@ -270,30 +270,27 @@ public class IcecastStreamer
     /// ADTS frames start with 0xFFF (sync code in first 12 bits).
     /// Frame header structure: 12-bit sync + payload info.
     /// </summary>
-    /// <returns>Frame size in bytes if a valid ADTS header is found; -1 otherwise</returns>
-    private static int TryDetectAACFrameSize(byte[] buffer, int offset)
+    /// <returns>Frame size in bytes if a valid ADTS header is found at the start of the span; -1 otherwise</returns>
+    private static int TryDetectAACFrameSize(ReadOnlySpan<byte> frame)
     {
-        if (offset + 2 >= buffer.Length)
+        if (frame.Length < 6)
             return -1;
 
         // Check for ADTS sync word (0xFFF in first 12 bits)
-        if ((buffer[offset] & 0xFF) != 0xFF)
+        if ((frame[0] & 0xFF) != 0xFF)
             return -1;
-        if ((buffer[offset + 1] & 0xF0) != 0xF0)
+        if ((frame[1] & 0xF0) != 0xF0)
             return -1;
 
         // Valid ADTS header found. Now extract frame length.
         // Bytes 3-4 (within the 7-byte header) contain length info:
-        // Byte 4 (offset+3): protection_absent(1 bit) + length_high(2 bits)
-        // Byte 5 (offset+4): length_mid(8 bits)
-        // Byte 6 (offset+5): length_low(3 bits) + buffer_fullness_high(5 bits)
+        // Byte 3 (index 3): protection_absent(1 bit) + length_high(2 bits)
+        // Byte 4 (index 4): length_mid(8 bits)
+        // Byte 5 (index 5): length_low(3 bits) + buffer_fullness_high(5 bits)
 
-        if (offset + 5 >= buffer.Length)
-            return -1;
-
-        int length = ((buffer[offset + 3] & 0x03) << 11)
-                   | (buffer[offset + 4] << 3)
-                   | ((buffer[offset + 5] & 0xE0) >> 5);
+        int length = ((frame[3] & 0x03) << 11)
+                   | (frame[4] << 3)
+                   | ((frame[5] & 0xE0) >> 5);
 
         // Frame length must be at least 7 bytes (header) and reasonable size
         if (length < 7 || length > 8192)
@@ -303,19 +300,19 @@ public class IcecastStreamer
     }
 
     /// <summary>
-    /// Finds the next AAC ADTS frame boundary starting from the given offset.
-    /// Returns the offset of the next frame boundary, or the buffer length if not found.
+    /// Finds the next AAC ADTS frame boundary starting from the beginning of the span.
+    /// Returns the offset of the next frame, or span.Length if not found.
     /// </summary>
-    private static int FindNextAACFrameBoundary(byte[] buffer, int offset, int maxSearch = 192 * 1024)
+    private static int FindNextAACFrameBoundary(ReadOnlySpan<byte> data, int maxSearch = 192 * 1024)
     {
-        int searchLimit = Math.Min(buffer.Length, offset + maxSearch);
+        int searchLimit = Math.Min(data.Length - 1, maxSearch);
 
-        for (int i = offset; i < searchLimit - 1; i++)
+        for (int i = 0; i < searchLimit; i++)
         {
-            if ((buffer[i] & 0xFF) == 0xFF && (buffer[i + 1] & 0xF0) == 0xF0)
+            if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xF0) == 0xF0)
             {
                 // Found potential ADTS sync marker, verify frame size is reasonable
-                int frameSize = TryDetectAACFrameSize(buffer, i);
+                int frameSize = TryDetectAACFrameSize(data.Slice(i));
                 if (frameSize > 0)
                 {
                     return i;
@@ -323,7 +320,7 @@ public class IcecastStreamer
             }
         }
 
-        return searchLimit;
+        return data.Length;
     }
 
     public async Task<int> WriteWithIcyAsync(ReadOnlyMemory<byte> data, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
@@ -359,36 +356,21 @@ public class IcecastStreamer
                 bytesUntilMeta = metaInt;
             }
 
-            // Convert the memory region to array for frame boundary detection
-            // (we need random access for ADTS frame detection)
-            byte[] buffer;
-            int bufferOffset;
-
-            if (MemoryMarshal.TryGetArray(data.Slice(audioOffset, audioRemaining), out var segment))
-            {
-                buffer = segment.Array!;
-                bufferOffset = segment.Offset;
-            }
-            else
-            {
-                // Copy to temporary buffer if not array-backed
-                buffer = data.Slice(audioOffset, Math.Min(audioRemaining, 192 * 1024)).ToArray();
-                bufferOffset = 0;
-            }
+            // Get a span for the current data region (no copy, just a view)
+            var audioSpan = data.Slice(audioOffset, audioRemaining).Span;
 
             // Find the next AAC frame boundary within the budget
             int bytesAvailable = Math.Min(audioRemaining, bytesUntilMeta);
-            int searchEnd = Math.Min(bytesAvailable, 192 * 1024);
-            int frameStart = bufferOffset;
+            int searchLimit = Math.Min(bytesAvailable, 192 * 1024);
 
             // Look for next frame boundary within the available bytes
-            int frameMarkerPos = FindNextAACFrameBoundary(buffer, frameStart, searchEnd);
-            int nextFrameBoundary = frameStart;
+            int frameMarkerPos = FindNextAACFrameBoundary(audioSpan.Slice(0, searchLimit));
+            int nextFrameBoundary = 0;
 
-            if (frameMarkerPos < bufferOffset + searchEnd)
+            if (frameMarkerPos < searchLimit)
             {
                 // Found a frame marker, now get the actual end of this frame
-                int frameSize = TryDetectAACFrameSize(buffer, frameMarkerPos);
+                int frameSize = TryDetectAACFrameSize(audioSpan.Slice(frameMarkerPos));
                 if (frameSize > 0)
                 {
                     nextFrameBoundary = frameMarkerPos + frameSize;
@@ -396,9 +378,9 @@ public class IcecastStreamer
             }
 
             // If we found a frame boundary within budget, write up to it
-            if (nextFrameBoundary > frameStart && nextFrameBoundary - frameStart <= bytesAvailable)
+            if (nextFrameBoundary > 0 && nextFrameBoundary <= bytesAvailable)
             {
-                int toWrite = nextFrameBoundary - frameStart;
+                int toWrite = nextFrameBoundary;
 
                 // Write in chunks to encourage HTTP chunking
                 int written = 0;
