@@ -11,7 +11,8 @@ namespace SXMPlayer.Tests
         public string password { get; init; }    
     }
 
-    public class UnitTest1: IDisposable
+    [Trait("Category", "Local")]
+    public class LocalTests: IDisposable
     {
         private IConfigurationRoot configuration;
         private IConfigurationSection sxmConfiguration;
@@ -19,7 +20,7 @@ namespace SXMPlayer.Tests
         private APISession session;
         private readonly ILoggerFactory loggerFactory;
 
-        public UnitTest1()
+        public LocalTests()
         {
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Path.Combine(Directory.GetCurrentDirectory(),"..","..", "..","..","SXMPlayer.Proxy"))
@@ -232,7 +233,7 @@ namespace SXMPlayer.Tests
             var authenticated = await client.AuthenticatedAsync("");
             Assert.NotNull(authenticated);
             session.SetIdentityToken(authenticated.AsSXMToken());
-            var decryptionKey = await client.V1Async("00000-0000-0000-0000-0000");
+            var decryptionKey = await client.V1Async("00000000-0000-0000-0000-000000000000");
             Assert.NotNull(decryptionKey);
         }
 

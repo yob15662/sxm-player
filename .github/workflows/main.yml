@@ -40,9 +40,8 @@ jobs:
       - name: Build
         run: dotnet build sxmplayer.sln --configuration Release --no-restore /p:Version=${{ steps.version.outputs.version }}
 
-    # Uncomment to enable tests
-    #   - name: Test
-    #     run: dotnet test SXMPlayer.Tests/SXMPlayer.Tests.csproj --configuration Release --no-build --verbosity normal
+      - name: Test
+        run: dotnet test SXMPlayer.Tests/SXMPlayer.Tests.csproj --configuration Release --no-build --verbosity normal --filter "Category!=Local"
 
       - name: Publish SXMPlayer.Proxy
         run: dotnet publish SXMPlayer.Proxy/SXMPlayer.Proxy.csproj --configuration Release --no-build --output ./artifact/SXMPlayer.Proxy /p:Version=${{ steps.version.outputs.version }}
