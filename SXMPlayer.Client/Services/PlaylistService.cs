@@ -56,6 +56,11 @@ public class PlaylistService
                     var badUTC = match.Groups[1].Value;
                     string cleanDateString = badUTC.Replace("+00:00", "").TrimEnd('Z');
                     DateTime estTime = DateTime.Parse(cleanDateString);
+                    // During time change, SiriusXM sends invalid timestamps
+                    if (estZone.IsInvalidTime(estTime))
+                    {
+                        estTime = estTime.AddHours(1);
+                    }
                     dateTime = TimeZoneInfo.ConvertTime(estTime, estZone).ToUniversalTime();
                 }
                 if (!line.StartsWith("#"))

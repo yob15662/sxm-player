@@ -38,7 +38,11 @@ public partial record MetadataItem
     {
         string cleanDateString = ts.TrimEnd('Z');
         var parsed = DateTime.Parse(cleanDateString);
-        // If you know it's actually EDT, convert it
+        // During time change, SiriusXM sends invalid timestamps
+        if (edtZone.IsInvalidTime(parsed))
+        {
+            parsed = parsed.AddHours(1);
+        }
         DateTimeOffset actualEdtTime = TimeZoneInfo.ConvertTime(parsed, edtZone);
         return actualEdtTime.ToUniversalTime();
     }
@@ -1131,7 +1135,7 @@ public class SiriusXMPlayer : IDisposable
         bool injectMeta = ctx.Request.Headers.TryGetValue("Icy-MetaData", out var metaReq) && string.Equals(metaReq, "1", StringComparison.Ordinal);
         var userAgent = ctx.Request.Headers["User-Agent"].ToString();
         var ua = userAgent?.ToLowerInvariant() ?? string.Empty;
-        
+
         // Force-enable for VLC which often omits the header for AAC
         //if (!injectMeta && ua.Contains("vlc"))
         //{

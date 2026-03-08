@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Blazorise;
-using Blazorise.Bootstrap5;
-using Blazorise.Icons.FontAwesome;
+using MudBlazor.Services;
 using Polly;
 using SXMPlayer;
+using SXMPlayer.Proxy.Components;
 using SXMPlayer.Proxy.Services;
 using System;
 using System.Reflection;
@@ -46,20 +45,22 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 
 builder.Host.UseSystemd();
 // Add services to the container.
-builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+
+builder.Services.AddMudServices();
+
+
+// Add services to the container.
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<SiriusXMPlayer>();
 builder.Services.AddHostedService<LibraryM3UExporter>();
-//builder.Services.AddControllers();
-builder.Services
-    .AddBlazorise(options =>
-    {
-        options.Immediate = true;
-    })
-    .AddBootstrap5Providers()
-    .AddFontAwesomeIcons();
+
 var app = builder.Build();
+
+app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+
 var logger = app.Services.GetRequiredService<ILogger<SiriusXMPlayer>>();
 var assembly = Assembly.GetExecutingAssembly().GetName();
 logger.LogInformation("Starting {AssemblyName} v{AssemblyVersion}", assembly.Name, assembly.Version?.ToString() ?? "unknown");
@@ -271,14 +272,13 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 
-app.UseStaticFiles();
+app.UseAntiforgery();
 
-app.UseRouting();
-
-app.MapBlazorHub();
-app.MapFallbackToPage("/_Host");
+app.MapStaticAssets();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();
 //app.Run("http://localhost:3000");

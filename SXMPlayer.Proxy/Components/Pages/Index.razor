@@ -1,0 +1,141 @@
+﻿@inject SiriusXMPlayer siriusXMReader
+@inject NavigationManager NavigationManager
+@implements IDisposable
+@page "/"
+
+<PageTitle>Channel Selector</PageTitle>
+
+<MudText Typo="Typo.h2" Class="mb-4">Sirius XM</MudText>
+
+<MudCard Class="mb-3">
+    <MudCardContent>
+        <MudText Typo="Typo.h5" Class="mb-2">
+            Now Playing
+            @if (nowPlayingData != null)
+            {
+                 @($" - {nowPlayingData.channel}")
+            }            
+        </MudText>
+        @if (nowPlayingData != null)
+        {
+            <MudText Typo="Typo.h6">@nowPlayingData.artist</MudText>
+            <MudText>@nowPlayingData.song</MudText>
+        }
+        else
+        {
+            <MudText>-</MudText>
+        }
+    </MudCardContent>
+</MudCard>
+
+<MudCard Class="mb-3">
+    <MudCardContent>
+        <MudText Typo="Typo.h5" Class="mb-2">
+            Current Channel
+        </MudText>
+        <MudLink Href="@GetCurrentURL()">Current Channel</MudLink>
+    </MudCardContent>
+</MudCard>
+
+<MudExpansionPanels>
+    <MudExpansionPanel Text="Channels">
+        @if (channels == null)
+        {
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        }
+        else
+        {
+            <MudTable Items="@channels" 
+                      Dense="true" 
+                      Hover="true" 
+                      @bind-SelectedItem="_selected"
+                      Filter="new Func<EntityData, bool>(FilterFunc)"
+                      Class="mt-3">
+                <ToolBarContent>
+                    <MudTextField @bind-Value="searchString" 
+                                  Placeholder="Search" 
+                                  Adornment="Adornment.Start" 
+                                  AdornmentIcon="@Icons.Material.Filled.Search" 
+                                  IconSize="Size.Medium" 
+                                  Class="mt-0">
+                    </MudTextField>
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTh Style="width: 50px;">#</MudTh>
+                    <MudTh>Name</MudTh>
+                    <MudTh Style="width: 80px;">Favorite</MudTh>
+                    <MudTh>Description</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="#">@context.Filename</MudTd>
+                    <MudTd DataLabel="Name">
+                        <MudLink Href="@GetChannelURL(context)">@context.ChannelName</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Favorite">
+                        @(favorites?.Count > 0 && favorites.Contains(context.Id) ? "★" : "")
+                    </MudTd>
+                    <MudTd DataLabel="Description">@context.ChannelDescription</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new int[] { 15, 25, 50, 100 }" />
+                </PagerContent>
+            </MudTable>
+        }
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+
+@code {
+    private EntityData? _selected;
+
+    private List<EntityData> channels;
+    
+    private string searchString = "";
+
+    private string GetChannelURL(EntityData channel)
+    {
+        //    @<a href="@GetChannelURL(channel)">Open</a>
+        return (new Uri(new Uri(NavigationManager.Uri), $"playlists/{channel.Filename}.m3u")).AbsolutePath;
+    }
+
+    private string GetCurrentURL()
+    {
+        //    @<a href="@GetChannelURL(channel)">Open</a>
+        return (new Uri(new Uri(NavigationManager.Uri), $"playlists/{SiriusXMPlayer.CURRENT_ID}.m3u")).AbsolutePath;
+    }
+
+	private List<string> favorites = null!;
+
+    private bool FilterFunc(EntityData element)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (element.ChannelName?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (element.ChannelDescription?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (element.Filename?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        nowPlayingData = siriusXMReader.GetNowPlaying();
+        siriusXMReader.RegisterNowPlayingListener(newTrack =>
+        {
+            nowPlayingData = newTrack;
+            InvokeAsync(() => StateHasChanged());
+        });
+        var dt = (await siriusXMReader.GetChannelsAsync()).ToList();
+		favorites = (await siriusXMReader.GetFavoritesAsync())?.ToList() ?? new();
+
+        //channels = dt;
+        channels = dt.OrderByDescending(c => favorites.Contains(c.Entity.Id)).Select(e => e.Entity).ToList();
+    }
+
+    private NowPlayingData? nowPlayingData;
+
+    public void Dispose() => siriusXMReader.RegisterNowPlayingListener(null);
+
+}
