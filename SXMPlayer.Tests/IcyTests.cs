@@ -57,8 +57,22 @@ namespace SXMPlayer.Tests
             var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
             playerMock.Setup(p => p.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
 
+            // Create actual instances for MetadataService dependencies (not used in this test anyway)
+            var apiSession = new APISession("https://test.example.com", _loggerFactoryMock.Object, "", "user", "pass");
+            var sxmSessionService = new SxmSessionService(apiSession, Mock.Of<ILogger<SxmSessionService>>(), new CancellationTokenSource(), null);
+            var playlistService = new PlaylistService(Mock.Of<ILogger<PlaylistService>>());
+
+            // Create a mock MetadataService
+            var metadataServiceMock = new Mock<MetadataService>(
+                Mock.Of<ILogger<MetadataService>>(),
+                apiSession,
+                sxmSessionService,
+                playlistService,
+                CancellationToken.None) { CallBase = false };
+            metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
+
             var metadataBuilder = new IcyMetadataBuilder();
-            var streamWriter = new IcyStreamWriter(metadataBuilder, _loggerMock.Object, () => playerMock.Object.GetNowPlaying());
+            var streamWriter = new IcyStreamWriter(metadataBuilder, _loggerMock.Object, metadataServiceMock.Object);
 
             var testData = 1000400;
             byte[] musicData = new byte[testData];
@@ -149,11 +163,24 @@ namespace SXMPlayer.Tests
         [Fact]
         public void TestMetadataBlock()
         {
-            var player = new SiriusXMPlayer(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
-            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
-            playerMock.Setup(p => p.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
+            // Create actual instances for MetadataService dependencies (not used in this test anyway)
+            var apiSession = new APISession("https://test.example.com", _loggerFactoryMock.Object, "", "user", "pass");
+            var sxmSessionService = new SxmSessionService(apiSession, Mock.Of<ILogger<SxmSessionService>>(), new CancellationTokenSource(), null);
+            var playlistService = new PlaylistService(Mock.Of<ILogger<PlaylistService>>());
 
-            var icecast = new IcecastStreamer(_loggerMock.Object, playerMock.Object);
+            // Create a mock MetadataService that returns now playing data
+            var metadataServiceMock = new Mock<MetadataService>(
+                Mock.Of<ILogger<MetadataService>>(),
+                apiSession,
+                sxmSessionService,
+                playlistService,
+                CancellationToken.None) { CallBase = false };
+            metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
+
+            // Create a mock player - not used in this specific test but required by IcecastStreamer constructor
+            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
+
+            var icecast = new IcecastStreamer(_loggerMock.Object, metadataServiceMock.Object, playerMock.Object);
             var block = icecast.GetMetadataBlock();
             var str = Encoding.UTF8.GetString(block);
             Assert.Equal(2, block[0]);

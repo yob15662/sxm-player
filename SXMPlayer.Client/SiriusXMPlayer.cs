@@ -5,9 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text.RegularExpressions;
 using System.Threading.Channels;
-using System.Globalization;
 using System.Text;
 using Polly;
 using Polly.Retry;
@@ -54,13 +52,9 @@ public class SiriusXMPlayer : IDisposable
 
     public const int MAX_AUTH_ATTEMPTS = 2;
 
-    public const string MQTT_ARTIST = $"{MQTT_TOPIC}/Artist";
+    public const int ICY_META_BLOCK = 8162;
 
-    public const string MQTT_CHANNEL = $"{MQTT_TOPIC}/Channel";
-
-    public const string MQTT_TOPIC = "SiriusXM/NowPlaying";
-
-    public const string MQTT_TRACK = $"{MQTT_TOPIC}/Track";
+    // MQTT constants removed - now in MetadataService
 
     private const int MAX_SEG_ENTRIES = 1000;
 
@@ -69,33 +63,24 @@ public class SiriusXMPlayer : IDisposable
     private readonly string password;
     private readonly string? cacheFolder;
     private readonly APISession session;
+    private readonly SxmSessionService sxmSessionService;
 
 
     //private readonly HttpClientHandler session;
     private readonly string username;
     private List<ChannelItemData>? _allChannels;
-    private DateTimeOffset? _audioOriginalTS;
+    // Metadata fields removed - now in MetadataService
     private ChannelItemData? _currentChannel;
-    private DateTimeOffset? _currentSelectionTS;
-    private DateTimeOffset? _lastNowPlayingListenersUpdate;
-    private DateTimeOffset? _inactivityStart;
-    private NowPlayingData? _nowPlaying;
-    private Task _isActiveExpiryTimer;
-    private Action<NowPlayingData> _nowPlayingListener;
-    private HttpClientHandler _session;
-    private string allCutsChannelInfo;
-    private List<MetadataItem>? allCutsCurrentChannel;
-    private string cachedPlaylist;
-    private HttpClient httpClient;
-    private DateTimeOffset? liveNowPlayingExpiry;
+    // Metadata fields removed - now in MetadataService
+    private HttpClientHandler? _session;
+    // Metadata fields removed - now in MetadataService
     private ILogger<SiriusXMPlayer> logger;
     private List<SXMListener> clients = new List<SXMListener>();
-    private readonly object _allCutsLock = new object();
+    // Metadata fields removed - now in MetadataService
 
     private CancellationTokenSource tokenSource = new CancellationTokenSource();
     private CancellationTokenSource playlistRefreshSource = new CancellationTokenSource();
-    private CacheManager cacheManager;
-    private SemaphoreSlim playlistSemaphore = new SemaphoreSlim(1, 1);
+    private CacheManager cacheManager = null!;
 
 
     // New services
@@ -103,6 +88,7 @@ public class SiriusXMPlayer : IDisposable
     private readonly PlaylistService playlistService;
     private readonly IcecastStreamer icecastStreamer;
     private readonly ResiliencePipeline<HttpResponseMessage> httpRetryPipeline;
+    private readonly MetadataService metadataService;
 
     //status - every 50 seconds
     //https://api.edge-gateway.siriusxm.com/playback/stream-enforcement/v1/status
@@ -137,7 +123,6 @@ public class SiriusXMPlayer : IDisposable
         cacheFolder = configuration.GetSection("SXM")["cacheFolder"];
         if (cacheFolder != null)
             cacheManager = new CacheManager(cacheFolder, loggerFactory);
-        InitializeActivityTimer();
         mqttServer = configuration.GetSection("MQTT")["Server"];
         if (mqttServer != null)
             logger.LogInformation($"Using MQTT server {mqttServer}");
@@ -145,12 +130,22 @@ public class SiriusXMPlayer : IDisposable
         var contentRootPath = hostingEnvironment.ContentRootPath;
         currentChannelFile = Path.Combine(contentRootPath, "currentChannel.json");
         session = new APISession("https://api.edge-gateway.siriusxm.com", loggerFactory, contentRootPath, username, password);
+        sxmSessionService = new SxmSessionService(session, loggerFactory.CreateLogger<SxmSessionService>(), tokenSource, null);
+        sxmSessionService.InitializeActivityTimer();
 
         // init services
         encryptionService = new HlsEncryptionService(session, logger);
-        playlistService = new PlaylistService(session, logger);
+        playlistService = new PlaylistService(loggerFactory.CreateLogger<PlaylistService>());
+        metadataService = new MetadataService(
+            loggerFactory.CreateLogger<MetadataService>(),
+            session,
+            sxmSessionService,
+            playlistService,
+            tokenSource.Token);
+        metadataService.StartTimeoutHandler();
+
         // pass a provider for now-playing into IcecastStreamer
-        icecastStreamer = new IcecastStreamer(logger, this);
+        icecastStreamer = new IcecastStreamer(logger, metadataService, this);
 
         // Configure Polly resilience pipeline for HTTP retries
         httpRetryPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
@@ -177,33 +172,13 @@ public class SiriusXMPlayer : IDisposable
     {
         _session?.Dispose();
         tokenSource.Cancel();
-        _isActiveExpiryTimer?.Dispose();
-        httpClient?.Dispose();
-    }
-
-    private async Task LoginIfNecessary(string reason)
-    {
-        if (_inactivityStart.HasValue && DateTimeOffset.Now - _inactivityStart > TimeSpan.FromHours(2))
-        {
-            logger.LogInformation($"Re-logging in due to inactivity - source:{reason}");
-            await session.ReLogin();
-            InitializeActivityTimer();
-            _inactivityStart = null;
-        }
-        else
-        {
-            var doLogin = await session.LoginIfNecessary();
-            if (doLogin)
-            {
-                InitializeActivityTimer();
-            }
-        }
+        sxmSessionService.Dispose();
     }
 
     public async Task<List<ChannelItemData>> GetChannelsAsync()
     {
         if (_allChannels != null) return _allChannels;
-        await LoginIfNecessary(nameof(GetChannelsAsync));
+        await sxmSessionService.LoginIfNecessary(nameof(GetChannelsAsync));
         var container = await session.apiClient.AllChannelsAsync("3JoBfOCIwo6FmTpzM1S2H7", "false", "curated-grouping",
                                         "403ab6a5-d3c9-4c2a-a722-a94a6a5fd056", "0", "1000", "small_list", session.GetKey());
         _allChannels = container?.Container?.Sets?.First()?.Items?.ToList();
@@ -217,18 +192,17 @@ public class SiriusXMPlayer : IDisposable
 
     public async Task<IEnumerable<string>?> GetFavoritesAsync()
     {
-        await LoginIfNecessary(nameof(GetFavoritesAsync));
+        await sxmSessionService.LoginIfNecessary(nameof(GetFavoritesAsync));
         var favoriteData = await session.apiClient.GetLibraryAsync(session.GetKey(), CancellationToken.None);
         var favorites = favoriteData.AllDataMap;
         return favorites?.Select(m => m.Key);
     }
 
-    public virtual NowPlayingData? GetNowPlaying() => _nowPlaying;
+    public virtual NowPlayingData? GetNowPlaying() => metadataService.GetNowPlaying();
 
     public const string CURRENT_ID = "current";
 
     private string currentChannelFile;
-    private Task<Task> statusTimer;
 
     private async Task<ChannelItemData?> GetCurrentChannel()
     {
@@ -237,18 +211,6 @@ public class SiriusXMPlayer : IDisposable
             _currentChannel = await Tools.ReadJsonFile<ChannelItemData>(currentChannelFile, logger);
         }
         return _currentChannel;
-    }
-
-    private static Regex EXTINF_RegEx = new Regex(@"#EXTINF:(?<duration>[^,]+)(,(?<title>.*))?", RegexOptions.Compiled);
-
-    private static double? ReadExtInfDuration(string line)
-    {
-        var match = EXTINF_RegEx.Match(line);
-        if (match.Success)
-        {
-            return double.Parse(match.Groups["duration"].Value);
-        }
-        return null;
     }
 
     //{"actions":[
@@ -268,7 +230,8 @@ public class SiriusXMPlayer : IDisposable
     /// <returns>true if progress has started</returns>
     public async Task<bool> SendProgressAction()
     {
-        if (_currentChannel is null || _nowPlaying is null || !HasActiveClient())
+        var nowPlaying = metadataService.GetNowPlaying();
+        if (_currentChannel is null || nowPlaying is null || !HasActiveClient())
         {
             return false;
         }
@@ -287,12 +250,17 @@ public class SiriusXMPlayer : IDisposable
         }
         else
         {
-            position = new Position() { AbsoluteTime = _audioOriginalTS!.Value.ToString("o") };
+            var audioTS = metadataService.AudioOriginalTimestamp;
+            if (audioTS is null)
+            {
+                return false;
+            }
+            position = new Position() { AbsoluteTime = audioTS.Value.ToString("o") };
             position2 = new Position2() { AbsoluteTime = position.AbsoluteTime };
         }
         if (_channelHasChanged)
         {
-            if (_currentChannel.Entity.Id is null || _nowPlaying.id is null)
+            if (_currentChannel.Entity.Id is null || nowPlaying.id is null)
             {
                 logger.LogWarning("Cannot send progress action - no current channel or no nowPlaying data");
                 return false;
@@ -304,7 +272,7 @@ public class SiriusXMPlayer : IDisposable
                 Start = new()
                 {
                     Source = new() { Type = type, Id = _currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = _nowPlaying.id },
+                    Item = new() { Type = itemType, Id = nowPlaying.id },
                     Position = position2,
                     SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
                     LogicalClock = new() { Counter = logicalClockCounter, Epoch = 0 }
@@ -320,7 +288,7 @@ public class SiriusXMPlayer : IDisposable
                 Progress = new()
                 {
                     Source = new() { Type = type, Id = _currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = _nowPlaying.id },
+                    Item = new() { Type = itemType, Id = nowPlaying.id },
                     Position = position,
                     SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
                     LogicalClock = new() { Counter = logicalClockCounter, Epoch = 0 }
@@ -341,8 +309,8 @@ public class SiriusXMPlayer : IDisposable
 
     public virtual async Task<string?> GetStreamPlaylist(string channelId, SXMListener? listener, string? alias = null, bool useCache = true, int retries = 0)
     {
-        await LoginIfNecessary(nameof(GetStreamPlaylist));
-        StartStatusTimer();
+        await sxmSessionService.LoginIfNecessary(nameof(GetStreamPlaylist));
+        sxmSessionService.StartStatusChecks();
         var currentChannel = await GetCurrentChannel();
         var isChannelChange = channelId != CURRENT_ID && channelId != currentChannel?.Entity.Id;
         if (isChannelChange)
@@ -354,141 +322,43 @@ public class SiriusXMPlayer : IDisposable
         {
             EnsurePrimaryExists(listener);
         }
+
         if (listener is not null)
         {
             listener.LastPlaylistRequest = DateTimeOffset.Now;
         }
-        StartProgressTimer(isChannelChange);
-        // check if cache should be used
-        if (channelId == CURRENT_ID && (!(listener?.IsPrimary ?? false)))
-        {
-            if (cachedPlaylist is null && currentChannel != null)
-            {
-                return await GetStreamPlaylist(currentChannel.Entity.Id, listener, channelId, useCache);
-            }
-            else
-                if (cachedPlaylist is null && currentChannel is null)
-                {
-                    throw new InvalidOperationException("Cannot get current playlist - no channel selected");
-                }
-            return cachedPlaylist;
-        }
-        if (channelId == CURRENT_ID)
-        {
-            channelId = currentChannel?.Entity.Id ?? throw new InvalidOperationException("No current channel selected");
-        }
 
-        if (!await playlistSemaphore.WaitAsync(TimeSpan.FromSeconds(10)))
-        {
-            logger.LogWarning("Timed out waiting for playlist semaphore. Another request might be taking too long.");
-            // Optional: wait a bit and return the cached playlist if available
-            await Task.Delay(TimeSpan.FromSeconds(5));
-            if (cachedPlaylist is not null) return cachedPlaylist;
-            // Or throw to indicate failure
-            throw new TimeoutException("Could not acquire lock to refresh playlist.");
-        }
+        StartProgressTimer(isChannelChange);
 
         try
         {
-            await SetCurrentChannel(channelId);
-            var url = await GetProxyPlaylistURL(channelId);
-            try
-            {
-                var res = await GetHttpResponseMessage(url, getQueryParameters());
-                var allLines = await res.Content.ReadAsStringAsync();
-                string[] lines = PlaylistService.SplitLines(allLines);
-                playlistService.ExtractTimeMap(lines);
-                var uri = new Uri(url);
-                var tgtPath = string.Join("", uri.Segments[1..7]);
-                var version = uri.Segments[^2];
-                var relPath = $"/stream/{alias ?? channelId}/{version}";
-                var newLines = new List<string>();
-                double totalDuration = 0;
-                int segmentCount = 0;
+            var playlist = await playlistService.GetStreamPlaylistAsync(
+                channelId,
+                CURRENT_ID,
+                listener,
+                alias,
+                useCache,
+                currentChannel,
+                listener?.IsPrimary ?? false,
+                async selectedChannelId => await SetCurrentChannel(selectedChannelId),
+                async selectedChannelId => await playlistService.GetProxyPlaylistUrlAsync(
+                    selectedChannelId,
+                    selected => TuneSource(selected),
+                    async url => await GetHttpResponseMessage(url, getQueryParameters())),
+                async url => await GetHttpResponseMessage(url, getQueryParameters()),
+                async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts, GetChannelsAsync),
+                metadataService.GetNowPlaying());
 
-                double? pendingDuration = null;
-
-                foreach (var l in lines)
-                {
-                    // Capture EXTINF duration but don't output yet; we'll emit it with a title just before the segment line
-                    if (l.StartsWith("#EXTINF:"))
-                    {
-                        var dur = ReadExtInfDuration(l) ?? 0;
-                        if (dur > 0)
-                        {
-                            totalDuration += dur;
-                            segmentCount++;
-                        }
-                        pendingDuration = dur;
-                        continue; // skip original EXTINF; we'll re-insert with title
-                    }
-
-                    if (l.Trim().EndsWith(".aac"))
-                    {
-                        // Compute title for this segment based on timestamp mapping or current now playing
-                        var segmentName = l.Split('/').Last();
-                        string title = string.Empty;
-
-                        if (playlistService.StreamTimeMap.TryGetValue(segmentName, out var ts) && ts is not null)
-                        {
-                            var info = await GetNowPlaying(channelId, ts);
-                            if (info is not null)
-                            {
-                                if (info.Value.id is null)
-                                {
-                                    logger.LogWarning($"No track ID for now playing - segment={segmentName} ts={ts?.ToLocalTime()}");
-                                }
-                                title = $"{info.Value.artist} - {info.Value.title}";
-                            }
-                        }
-
-                        if (string.IsNullOrWhiteSpace(title) && _nowPlaying is not null)
-                        {
-                            title = $"{_nowPlaying.artist} - {_nowPlaying.song}";
-                        }
-
-                        // Fallback
-                        if (string.IsNullOrWhiteSpace(title))
-                        {
-                            title = "- - -";
-                        }
-
-                        var durStr = (pendingDuration ?? 0).ToString("0.###", CultureInfo.InvariantCulture);
-                        newLines.Add($"#EXTINF:{durStr},{title}");
-
-                        // Then add the segment line rewritten to our proxy path
-                        newLines.Add($"{relPath}{l}");
-
-                        pendingDuration = null;
-                        continue;
-                    }
-
-                    // Pass-through other lines (keys, headers, etc.)
-                    newLines.Add(PlaylistService.RedirectKeyIfFound(l));
-                }
-
-                avgSegmentDuration = segmentCount == 0 ? (double?)null : (totalDuration / segmentCount);
-                //remove EXT-X-ENDLIST from newLines
-                newLines.RemoveAll(l => l.Contains("EXT-X-ENDLIST"));
-                //replace #EXT-X-PLAYLIST-TYPE:VOD with #EXT-X-PLAYLIST-TYPE:EVENT at the same line
-                newLines = newLines.Select(l => l.Replace("VOD", "EVENT")).ToList();
-
-                cachedPlaylist = String.Join('\n', newLines);
-                return cachedPlaylist;
-            }
-            catch (ApiException ex)
-            {
-                logger.LogWarning(ex, $"GetRealPlaylist data - Forbidden error - retrying - retries={retries}");
-                await session.ReLogin();
-                InitializeActivityTimer();
-                return await GetStreamPlaylist(channelId, listener, useCache: false, retries: retries++);
-            }
+            avgSegmentDuration = playlistService.AverageSegmentDuration;
+            return playlist;
         }
-        finally
+        catch (ApiException ex)
         {
-            playlistSemaphore.Release();
+            logger.LogWarning(ex, $"GetRealPlaylist data - Forbidden error - retrying - retries={retries}");
+            await session.ReLogin();
+            sxmSessionService.InitializeActivityTimer();
+            return await GetStreamPlaylist(channelId, listener, alias, useCache: false, retries: retries + 1);
         }
-
     }
 
     private void EnsurePrimaryExists(SXMListener? client)
@@ -527,10 +397,7 @@ public class SiriusXMPlayer : IDisposable
             _channelHasChanged = true;
             playlistRefreshSource.Cancel();
             playlistRefreshSource = new CancellationTokenSource();
-            lock (_allCutsLock)
-            {
-                allCutsCurrentChannel = null;
-            }
+            // Cuts will refresh on next metadata request
         }
         var allChannels = await GetChannelsAsync();
         _currentChannel = allChannels.FirstOrDefault(c => c.Entity.Id == channelId);
@@ -563,15 +430,19 @@ public class SiriusXMPlayer : IDisposable
             throw new InvalidOperationException($"Channel mismatch: requested {channelId} but current is {_currentChannel?.Entity.Id}. Channel must be set via playlist request first.");
         }
 
-        if (!sxmStreams.TryGetValue(channelId, out var stream) || stream is null)
+        if (!playlistService.TryGetStream(channelId, out var stream) || stream is null)
         {
             // Try to populate from current tuning info
             try
             {
-                _ = await GetProxyPlaylistURL(channelId);
+                _ = await playlistService.GetProxyPlaylistUrlAsync(
+                    channelId,
+                    selected => TuneSource(selected),
+                    async url => await GetHttpResponseMessage(url, getQueryParameters()));
             }
             catch { }
-            sxmStreams.TryGetValue(channelId, out stream);
+
+            playlistService.TryGetStream(channelId, out stream);
         }
         if (stream is null)
         {
@@ -616,57 +487,14 @@ public class SiriusXMPlayer : IDisposable
         }
     }
 
-    //#EXT-X-KEY:METHOD=AES-128,URI="https://api.edge-gateway.siriusxm.com/playback/key/v1/00000000-0000-0000-0000-000000000000"
-
     public void RegisterNowPlayingListener(Action<NowPlayingData> listener)
     {
-        _nowPlayingListener = listener;
+        metadataService.RegisterNowPlayingListener(listener);
     }
 
     private async Task SetNowPlayingFromSegment(SXMSegment segment, bool retry = true)
     {
-        _audioOriginalTS = null;
-        var channels = await GetChannelsAsync();
-        var prevNowPlaying = _nowPlaying;
-        _nowPlaying = null;
-        if (playlistService.StreamTimeMap.TryGetValue(segment.segment, out var audioTS))
-        {
-            _audioOriginalTS = audioTS;
-            var trackInfo = await GetNowPlaying(segment.stream.channel, _audioOriginalTS);
-            var channelName = channels.FirstOrDefault(s => s.Entity.Id == segment.stream.channel);
-            if (trackInfo != null && channelName != null)
-            {
-                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName, trackInfo.Value.artist, trackInfo.Value.title, trackInfo.Value.id);
-            }
-            else if (channelName != null)
-            {
-                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName, "-", "-", null);
-            }
-        }
-        else
-        {
-            if (retry)
-            {   // try to refresh cuts and retry once
-                await RefreshAllCuts(segment.stream.channel);
-                await SetNowPlayingFromSegment(segment, false);
-                return;
-            }
-            logger.LogWarning($"Cannot find {segment.segment} in playlistMap");
-            _nowPlaying = new NowPlayingData("?", "?", "?", null);
-        }
-        if (_nowPlaying != prevNowPlaying || _lastNowPlayingListenersUpdate is null)
-        {
-            _nowPlayingListener?.Invoke(_nowPlaying!);
-            if (mqttServer != null && _nowPlaying != null)
-            {
-                _lastNowPlayingListenersUpdate = DateTimeOffset.Now;
-            }
-        }
-        if (_nowPlaying != null && _lastNowPlayingListenersUpdate < DateTimeOffset.Now.AddMinutes(-2))
-        {
-            _lastNowPlayingListenersUpdate = DateTimeOffset.Now;
-        }
-        _currentSelectionTS = DateTimeOffset.Now;
+        await metadataService.SetNowPlayingFromSegment(segment, GetChannelsAsync, mqttServer, retry);
     }
 
     public virtual async Task<byte[]> GetDecryptionKey(string guid)
@@ -719,7 +547,9 @@ public class SiriusXMPlayer : IDisposable
         }, tokenSource.Token);
     }
 
-    private PeriodicTimer progressTimer;
+    private PeriodicTimer? progressTimer;
+    private Task<Task>? progressTimerTask;
+
     private void StartProgressTimer(bool isChannelChanged)
     {
         if (progressTimerTask is not null)
@@ -748,183 +578,11 @@ public class SiriusXMPlayer : IDisposable
             });
     }
 
-    private void StartStatusTimer()
-    {
-        if (statusTimer is not null)
-        {
-            return;
-        }
-        statusTimer = Task.Factory.StartNew(
-            async () =>
-            {
-                var timer = new PeriodicTimer(TimeSpan.FromSeconds(50));
-                while (!tokenSource.IsCancellationRequested)
-                {
-                    await timer.WaitForNextTickAsync(tokenSource.Token);
-                    var statusResponse = await session.apiClient.StatusAsync();
-                    logger.LogDebug($"Status response - state={statusResponse.State}");
-                    if (statusResponse?.State?.ToLower() != "active")
-                    {
-                        logger.LogCritical($"Status is not active - state={statusResponse.State}");
-                        tokenSource.Cancel();
-                    }
-                }
-            });
-    }
-
-    private string FormatToISO8601(DateTimeOffset dateTime)
-    {
-        //var edtZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-        //var edtTime = TimeZoneInfo.ConvertTime(dateTime, edtZone);
-        //return edtTime.DateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-        return dateTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-    }
-
-    // Mon, 20 Oct 2025 19:58:58 GMT
-    // channelId: "e6333906-2e89-6c07-59d6-36d09248b8dc"
-    // endTimestamp: "2025-10-20T19:59:37.941Z"
-    // startTimestamp: "2025-10-20T16:47:27.492Z"
-
-    private async Task RefreshAllCuts(string channel)
-    {
-        //Wed, 18 Sep 2024 13:38:39 GMT
-        var ts = DateTimeOffset.Now;
-        var start = ts.AddMinutes(-10).AddHours(-3);
-        var end = ts.AddMinutes(1);
-        //endTimestamp:        "2024-09-18T13:39:19.000Z" ISO 8601
-        //startTimestamp:        "2024-09-18T13:33:03.222Z"
-        var liveUpdateData = await session.apiClient.LiveUpdateAsync(new()
-        {
-            ChannelId = channel,
-            StartTimestamp = FormatToISO8601(start),
-            EndTimestamp = FormatToISO8601(end)
-        });
-        lock (_allCutsLock)
-        {
-            allCutsChannelInfo = channel;
-            allCutsCurrentChannel = liveUpdateData?.Items?.ToList();
-        }
-    }
-
-    private async Task<(string artist, string title, string? id)?> GetNowPlaying(string channelId, DateTimeOffset? ts, bool tryRefresh = true)
-    {
-        List<MetadataItem>? currentCuts;
-        lock (_allCutsLock)
-        {
-            currentCuts = allCutsCurrentChannel;
-        }
-
-        if (ts is null || currentCuts is null)
-        {
-            if (currentCuts is null && tryRefresh)
-            {
-                await RefreshAllCuts(channelId);
-                cutsRefreshed++;
-                return await GetNowPlaying(channelId, ts, false);
-            }
-            var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
-            logger.LogWarning($"no cuts or no current channel - channel={channelId} ts={ts}");
-            return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
-        }
-
-        var utcTime = ts.Value.ToUniversalTime();
-        var current = currentCuts.FirstOrDefault(ct => ct.StartTime <= utcTime && ct.EndTime.AddSeconds(1) >= utcTime);
-        if (current is null)
-            current = currentCuts.FirstOrDefault(ct => ct.StartTime <= utcTime);
-        if (current is null && tryRefresh)
-        {
-            logger.LogInformation($"Now playing not found in cuts - refreshing cuts - channel={channelId} ts={ts?.ToLocalTime()}");
-            if (cutsRefreshed >= 2)
-            {
-                logger.LogWarning($"Too many cuts refreshes - giving up - channel={channelId} ts={ts?.ToLocalTime()}");
-                var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
-                return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
-            }
-            await RefreshAllCuts(channelId);
-            cutsRefreshed++;
-            return await GetNowPlaying(channelId, ts, false);
-        }
-        cutsRefreshed = 0;
-        if (current is null && utcTime <= liveNowPlayingExpiry?.ToUniversalTime())
-        {
-            // not found in history => live now playing
-            current = currentCuts.FirstOrDefault(ct => ct.StartTime == ct.EndTime);
-        }
-        if (current is null && (channelId == _currentChannel?.Entity.Id || _currentChannel is null))
-        {
-            // not found in history => live now playing
-            current = currentCuts.FirstOrDefault(ct => ct.StartTime == ct.EndTime);
-        }
-
-        if (current is null)
-        {
-            // not found in history => live now playing
-            current = currentCuts.FirstOrDefault(ct => ct.StartTime == ct.EndTime);
-            if (current is not null && ts is not null)
-            {
-                liveNowPlayingExpiry = current?.EndTime.AddSeconds((ts.Value - current.EndTime).TotalSeconds + 30);
-            }
-        }
-        else
-        {
-            // historical data            
-            liveNowPlayingExpiry = null;
-        }
-
-        var lastCut = currentCuts.OrderByDescending(e => e.EndTime).FirstOrDefault();
-        var firstCut = currentCuts.OrderBy(e => e.StartTime).FirstOrDefault();
-        if (utcTime >= lastCut?.EndTime)
-        {
-            current = lastCut;
-        }
-
-        if (current != null)
-        {
-            return (current?.ArtistName ?? "-", current?.Name ?? "-", current?.Id);
-        }
-        else
-        {
-            var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
-            logger.LogWarning($"Invalid now playing data - channel={channelId} ts={ts?.ToLocalTime()} - first={firstCut?.StartTime.ToLocalTime()} - last={lastCut?.StartTime.ToLocalTime()}");
-            return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
-        }
-    }
-
-    private ConcurrentDictionary<string, SXMStream> sxmStreams = new();
-    private Task<Task> progressTimerTask;
     private bool _channelHasChanged;
     private double? avgSegmentDuration;
-    private int cutsRefreshed;
 
     public int? ICYMetaInt { get; internal set; }
     public bool DisableICYMetadata { get; internal set; } = false;
-
-    private async Task<string> GetProxyPlaylistURL(string channelId)
-    {
-        Streams stream1 = await TuneSource(channelId);
-        var bandwidths = stream1.Urls.First(s => s.IsPrimary).Url;
-        var res = await GetHttpResponseMessage(bandwidths, getQueryParameters());
-        var allLines = await res.Content.ReadAsStringAsync();
-        string[] lines = SplitLines(allLines);
-        var topBandwidth = lines.First(l => l.Contains("m3u8"));
-        var uri = new Uri(bandwidths);
-        var tgtPath = string.Join("", uri.Segments[0..^1]);
-        // Combine the base URL with the top bandwidth variant
-        var finalM3U8 = $"{uri.Scheme}://{uri.Host}{tgtPath}{topBandwidth}";
-
-        // Cache stream base path so we can resolve AAC segments later
-        // Example source: /v1/<token>/sec-1/AAC_Data/<channel>/...
-        var basePath = $"{uri.Scheme}://{uri.Host}{tgtPath}"; // ends with '/'
-        sxmStreams[channelId] = new SXMStream(
-            token: uri.Segments.Length > 1 ? uri.Segments[1].Trim('/') : "v1",
-            channel: channelId,
-            stream: uri.Segments.Length > 3 ? uri.Segments[3].Trim('/') : "sec-1",
-            data: uri.Segments.Length > 4 ? uri.Segments[4].Trim('/') : "AAC_Data",
-            path: basePath
-        );
-
-        return finalM3U8;
-    }
 
     private async Task<Streams> TuneSource(string channelId, int retries = 0)
     {
@@ -933,7 +591,7 @@ public class SiriusXMPlayer : IDisposable
             logger.LogError($"Too many retries");
             throw new InvalidOperationException("Too many retries");
         }
-        await LoginIfNecessary(nameof(TuneSource));
+        await sxmSessionService.LoginIfNecessary(nameof(TuneSource));
         try
         {
             var allChannels = await GetChannelsAsync();
@@ -958,10 +616,7 @@ public class SiriusXMPlayer : IDisposable
             var stream1 = tuneSource.Streams!.First();
             if (channel.Entity.Type == "channel-linear")
             {
-                lock (_allCutsLock)
-                {
-                    allCutsCurrentChannel = stream1.Metadata?.Live?.Items!.ToList();
-                }
+                metadataService.UpdateCutsFromStream(channelId, stream1.Metadata?.Live?.Items!.ToList());
                 return stream1;
             }
             else
@@ -975,7 +630,7 @@ public class SiriusXMPlayer : IDisposable
             logger.LogWarning(hex, $"HTTP error during TuneSource - {hex.Message} - retrying - retries={retries}");
             await Task.Delay(TimeSpan.FromSeconds(5 * (retries + 1)), tokenSource.Token);
             await session.ReLogin();
-            InitializeActivityTimer();
+            sxmSessionService.InitializeActivityTimer();
             return await TuneSource(channelId, retries + 1);
         }
         catch (ApiException aex)
@@ -990,42 +645,13 @@ public class SiriusXMPlayer : IDisposable
                 logger.LogWarning($"Error loading cuts - error {aex.StatusCode}:{aex.Response ?? aex.Message} - retrying - retries={retries}");
                 await Task.Delay(TimeSpan.FromSeconds(5 * (retries + 1)), tokenSource.Token);
                 await session.ReLogin();
-                InitializeActivityTimer();
+                sxmSessionService.InitializeActivityTimer();
                 return await TuneSource(channelId, retries + 1);
             }
         }
     }
 
     private Dictionary<string, string> getQueryParameters() => new Dictionary<string, string> { };
-
-    private void InitializeActivityTimer()
-    {
-
-        httpClient = null;
-        _isActiveExpiryTimer ??= Task.Factory.StartNew(NowPlayingTimeoutHandler, tokenSource.Token)
-            .ContinueWith(_ => { logger.LogError(_.Exception, "Error with timeout handler"); },
-            TaskContinuationOptions.OnlyOnFaulted); ;
-    }
-
-    private async void NowPlayingTimeoutHandler()
-    {
-        while (!tokenSource.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2), tokenSource.Token);
-            if (!tokenSource.IsCancellationRequested)
-            {
-                UpdateClientActivity();
-                if (_currentSelectionTS != null && DateTimeOffset.Now - _currentSelectionTS > TimeSpan.FromSeconds(120))
-                {
-                    _inactivityStart = DateTimeOffset.Now;
-                    _nowPlaying = new NowPlayingData("-", "-", "-", null);
-                    _nowPlayingListener?.Invoke(_nowPlaying);
-                    logger.LogInformation($"Timeout detected for segments");
-                    _currentSelectionTS = null;
-                }
-            }
-        }
-    }
 
     public EntityData? GetChannelFromFilename(string fileName)
     {
@@ -1116,8 +742,6 @@ public class SiriusXMPlayer : IDisposable
         var imgParamsBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(imgParams));
         return $"https://imgsrv-sxm-prod-device.streaming.siriusxm.com/{imgParamsBase64}";
     }
-
-    public const int ICY_META_BLOCK = 8162;
 
     /// <summary>
     /// Starts a continuous Icecast-compatible AAC stream from the HLS source with progressive ICY metadata.
