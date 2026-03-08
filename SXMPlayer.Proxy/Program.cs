@@ -6,6 +6,7 @@ using Polly;
 using SXMPlayer;
 using SXMPlayer.Proxy.Services;
 using System;
+using System.Reflection;
 
 //dotnet run --urls="https://localhost:7777"
 var builder = WebApplication.CreateBuilder(args);
@@ -60,6 +61,8 @@ builder.Services
     .AddFontAwesomeIcons();
 var app = builder.Build();
 var logger = app.Services.GetRequiredService<ILogger<SiriusXMPlayer>>();
+var assembly = Assembly.GetExecutingAssembly().GetName();
+logger.LogInformation("Starting {AssemblyName} v{AssemblyVersion}", assembly.Name, assembly.Version?.ToString() ?? "unknown");
 var sxm = app.Services.GetRequiredService<SiriusXMPlayer>();
 // Configure the HTTP request pipeline.
 var configuration = builder.Configuration;

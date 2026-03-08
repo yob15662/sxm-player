@@ -24,11 +24,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Controllers\" />
-		<Folder Include="Data\" />
-	</ItemGroup>
-
-	<ItemGroup>
 	  <ProjectReference Include="..\SXMPlayer.Client\SXMPlayer.csproj" />
 	</ItemGroup>
 

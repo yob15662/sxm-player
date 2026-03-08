@@ -86,7 +86,7 @@ public class IcecastStreamer
          var combinedCt = combinedCts.Token;
          long lastMediaSequence = -1;
          var processedSegments = new HashSet<string>();
-const int maxProcessedSegments = 50; // Avoid re-queueing recent segments
+         const int maxProcessedSegments = 50; // Avoid re-queueing recent segments
          string? lastChannelId = null;
          bool useCache = true;
 
@@ -265,83 +265,187 @@ const int maxProcessedSegments = 50; // Avoid re-queueing recent segments
      }, clientDisconnectCt).ContinueWith(t => writer.Complete(t.Exception?.GetBaseException()), TaskContinuationOptions.None);
     }
 
-    public async Task<int> WriteWithIcyAsync(Stream source, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
+    /// <summary>
+    /// Detects AAC ADTS sync marker and calculates frame size.
+    /// ADTS frames start with 0xFFF (sync code in first 12 bits).
+    /// Frame header structure: 12-bit sync + payload info.
+    /// </summary>
+    /// <returns>Frame size in bytes if a valid ADTS header is found; -1 otherwise</returns>
+    private static int TryDetectAACFrameSize(byte[] buffer, int offset)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
-        try
+        if (offset + 2 >= buffer.Length)
+            return -1;
+
+        // Check for ADTS sync word (0xFFF in first 12 bits)
+        if ((buffer[offset] & 0xFF) != 0xFF)
+            return -1;
+        if ((buffer[offset + 1] & 0xF0) != 0xF0)
+            return -1;
+
+        // Valid ADTS header found. Now extract frame length.
+        // Bytes 3-4 (within the 7-byte header) contain length info:
+        // Byte 4 (offset+3): protection_absent(1 bit) + length_high(2 bits)
+        // Byte 5 (offset+4): length_mid(8 bits)
+        // Byte 6 (offset+5): length_low(3 bits) + buffer_fullness_high(5 bits)
+
+        if (offset + 5 >= buffer.Length)
+            return -1;
+
+        int length = ((buffer[offset + 3] & 0x03) << 11)
+                   | (buffer[offset + 4] << 3)
+                   | ((buffer[offset + 5] & 0xE0) >> 5);
+
+        // Frame length must be at least 7 bytes (header) and reasonable size
+        if (length < 7 || length > 8192)
+            return -1;
+
+        return length;
+    }
+
+    /// <summary>
+    /// Finds the next AAC ADTS frame boundary starting from the given offset.
+    /// Returns the offset of the next frame boundary, or the buffer length if not found.
+    /// </summary>
+    private static int FindNextAACFrameBoundary(byte[] buffer, int offset, int maxSearch = 192 * 1024)
+    {
+        int searchLimit = Math.Min(buffer.Length, offset + maxSearch);
+
+        for (int i = offset; i < searchLimit - 1; i++)
         {
-            int read;
-            while ((read = await source.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+            if ((buffer[i] & 0xFF) == 0xFF && (buffer[i + 1] & 0xF0) == 0xF0)
             {
-                int offset = 0;
-                while (read > 0)
+                // Found potential ADTS sync marker, verify frame size is reasonable
+                int frameSize = TryDetectAACFrameSize(buffer, i);
+                if (frameSize > 0)
                 {
-                    if (injectMeta && bytesUntilMeta == 0)
-                    {
-                        var meta = GetMetadataBlock();
-                        await ctx.Response.Body.WriteAsync(meta, 0, meta.Length, ct);
-                        bytesUntilMeta = metaInt;
-                    }
-
-                    // Limit this write to the smaller of remaining data or remaining bytes until next metadata block
-                    int writeBudget = injectMeta ? Math.Min(read, bytesUntilMeta) : read;
-
-                    // Further split into fixed-size output chunks to encourage HTTP chunked framing
-                    while (writeBudget > 0)
-                    {
-                        int chunk = Math.Min(writeBudget, OutputChunkSize);
-                        await ctx.Response.Body.WriteAsync(buffer.AsMemory(offset, chunk), ct);
-                        offset += chunk;
-                        read -= chunk;
-                        writeBudget -= chunk;
-                        if (injectMeta)
-                        {
-                            bytesUntilMeta -= chunk;
-                        }
-                    }
+                    return i;
                 }
-                await ctx.Response.Body.FlushAsync(ct);
             }
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-        return bytesUntilMeta;
+
+        return searchLimit;
     }
 
     public async Task<int> WriteWithIcyAsync(ReadOnlyMemory<byte> data, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
     {
-        int offset = 0;
-        int remaining = data.Length;
-        while (remaining > 0)
+        // When ICY metadata is disabled, just write data as-is
+        if (!injectMeta)
         {
-            if (injectMeta && bytesUntilMeta == 0)
+            int offset = 0;
+            int remaining = data.Length;
+
+            while (remaining > 0)
+            {
+                int chunk = Math.Min(remaining, OutputChunkSize);
+                await ctx.Response.Body.WriteAsync(data.Slice(offset, chunk), ct);
+                offset += chunk;
+                remaining -= chunk;
+            }
+            await ctx.Response.Body.FlushAsync(ct);
+            return bytesUntilMeta;
+        }
+
+        // When metadata injection is enabled, respect AAC frame boundaries
+        int audioOffset = 0;
+        int audioRemaining = data.Length;
+
+        while (audioRemaining > 0)
+        {
+            // Check if we need to inject metadata before this data chunk
+            if (bytesUntilMeta <= 0)
             {
                 var meta = GetMetadataBlock();
                 await ctx.Response.Body.WriteAsync(meta, 0, meta.Length, ct);
                 bytesUntilMeta = metaInt;
             }
 
-            // Limit this write to the smaller of remaining data or remaining bytes until next metadata block
-            int writeBudget = injectMeta ? Math.Min(remaining, bytesUntilMeta) : remaining;
+            // Convert the memory region to array for frame boundary detection
+            // (we need random access for ADTS frame detection)
+            byte[] buffer;
+            int bufferOffset;
 
-            // Further split into fixed-size output chunks to encourage HTTP chunked framing
-            while (writeBudget > 0)
+            if (MemoryMarshal.TryGetArray(data.Slice(audioOffset, audioRemaining), out var segment))
             {
-                int chunk = Math.Min(writeBudget, OutputChunkSize);
-                await ctx.Response.Body.WriteAsync(data.Slice(offset, chunk), ct);
-                offset += chunk;
-                remaining -= chunk;
-                writeBudget -= chunk;
-                if (injectMeta)
+                buffer = segment.Array!;
+                bufferOffset = segment.Offset;
+            }
+            else
+            {
+                // Copy to temporary buffer if not array-backed
+                buffer = data.Slice(audioOffset, Math.Min(audioRemaining, 192 * 1024)).ToArray();
+                bufferOffset = 0;
+            }
+
+            // Find the next AAC frame boundary within the budget
+            int bytesAvailable = Math.Min(audioRemaining, bytesUntilMeta);
+            int searchEnd = Math.Min(bytesAvailable, 192 * 1024);
+            int frameStart = bufferOffset;
+
+            // Look for next frame boundary within the available bytes
+            int frameMarkerPos = FindNextAACFrameBoundary(buffer, frameStart, searchEnd);
+            int nextFrameBoundary = frameStart;
+
+            if (frameMarkerPos < bufferOffset + searchEnd)
+            {
+                // Found a frame marker, now get the actual end of this frame
+                int frameSize = TryDetectAACFrameSize(buffer, frameMarkerPos);
+                if (frameSize > 0)
                 {
-                    bytesUntilMeta -= chunk;
+                    nextFrameBoundary = frameMarkerPos + frameSize;
                 }
             }
+
+            // If we found a frame boundary within budget, write up to it
+            if (nextFrameBoundary > frameStart && nextFrameBoundary - frameStart <= bytesAvailable)
+            {
+                int toWrite = nextFrameBoundary - frameStart;
+
+                // Write in chunks to encourage HTTP chunking
+                int written = 0;
+                while (written < toWrite)
+                {
+                    int chunk = Math.Min(toWrite - written, OutputChunkSize);
+                    await ctx.Response.Body.WriteAsync(data.Slice(audioOffset + written, chunk), ct);
+                    written += chunk;
+                    bytesUntilMeta -= chunk;
+                }
+
+                audioOffset += toWrite;
+                audioRemaining -= toWrite;
+            }
+            else
+            {
+                // No frame boundary found within budget, write what we can safely write
+                // (up to bytesUntilMeta) and let the next iteration handle metadata injection
+                int toWrite = Math.Min(audioRemaining, bytesUntilMeta);
+
+                int written = 0;
+                while (written < toWrite)
+                {
+                    int chunk = Math.Min(toWrite - written, OutputChunkSize);
+                    await ctx.Response.Body.WriteAsync(data.Slice(audioOffset + written, chunk), ct);
+                    written += chunk;
+                    bytesUntilMeta -= chunk;
+                }
+
+                audioOffset += toWrite;
+                audioRemaining -= toWrite;
+            }
         }
+
         await ctx.Response.Body.FlushAsync(ct);
         return bytesUntilMeta;
+    }
+
+    // Keep the old Stream-based overload for compatibility
+    public async Task<int> WriteWithIcyAsync(Stream source, HttpContext ctx, bool injectMeta, int metaInt, int bytesUntilMeta, CancellationToken ct)
+    {
+        // Read entire stream into memory to enable frame boundary detection
+        using var ms = new MemoryStream();
+        await source.CopyToAsync(ms, ct);
+        ms.Position = 0;
+
+        return await WriteWithIcyAsync(ms.ToArray().AsMemory(), ctx, injectMeta, metaInt, bytesUntilMeta, ct);
     }
 
     internal void ClearMetadataState()

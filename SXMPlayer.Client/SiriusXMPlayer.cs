@@ -1131,6 +1131,7 @@ public class SiriusXMPlayer : IDisposable
         bool injectMeta = ctx.Request.Headers.TryGetValue("Icy-MetaData", out var metaReq) && string.Equals(metaReq, "1", StringComparison.Ordinal);
         var userAgent = ctx.Request.Headers["User-Agent"].ToString();
         var ua = userAgent?.ToLowerInvariant() ?? string.Empty;
+        
         // Force-enable for VLC which often omits the header for AAC
         //if (!injectMeta && ua.Contains("vlc"))
         //{
