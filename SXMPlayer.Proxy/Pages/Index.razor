@@ -7,7 +7,7 @@
 <DisplayHeading Size="DisplayHeadingSize.Is2">Sirius XM</DisplayHeading>
 <Card Background="Background.Success" WhiteText>
     <CardBody>
-        <CardTitle Size="3">
+        <CardTitle Size="HeadingSize.Is3">
             Now Playing
             @if (nowPlayingData != null)
             {
@@ -29,7 +29,7 @@
 </Card>
 <Card style="margin-top: 10px;">
     <CardBody>
-        <CardTitle Size="3">
+        <CardTitle Size="HeadingSize.Is3">
             Current Channel
         </CardTitle>
         <CardText>
@@ -62,21 +62,19 @@
                       PagerPosition="DataGridPagerPosition.TopAndBottom"
                         ShowPageSizes>
                 <DataGridCommandColumn />
-                    <DataGridColumn Field="@nameof(EntityData.Filename)" Caption="#" Width="10px" />
+                    <DataGridColumn Field="@nameof(EntityData.Filename)" Caption="#" Width="Width.Px( 10 )" />
                     <DataGridColumn Field="@nameof(EntityData.ChannelName)" Caption="Name">
                     <DisplayTemplate>
-                        @{
-                                var channel = context as EntityData;
-                                <a href="@GetChannelURL(channel!)">@channel.ChannelName</a>
+                            @{
+                                <a href="@GetChannelURL(context.Item!)">@context.Item.ChannelName</a>
                             }
                         </DisplayTemplate>
                     </DataGridColumn>
                     @*                     <DataGridColumn Field="@nameof(SXMChannel.MainCategory)" Caption="Category" />*@
-                    <DataGridColumn Field="@nameof(EntityData.Id)" Caption="Favorite" Width="10px">
+                    <DataGridColumn Field="@nameof(EntityData.Id)" Caption="Favorite" Width="Width.Px( 10 )">
                         <DisplayTemplate>
                             @{
-                                var channel = context as EntityData;
-							    @(favorites?.Count > 0 && favorites.Contains(channel!.Id) ? "★" : "")
+                                @(favorites?.Count > 0 && favorites.Contains(context.Item!.Id) ? "★" : "")
                             }
                         </DisplayTemplate>
                     </DataGridColumn>
