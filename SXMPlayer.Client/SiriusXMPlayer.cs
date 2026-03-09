@@ -549,34 +549,43 @@ public class SiriusXMPlayer : IDisposable
 
     private PeriodicTimer? progressTimer;
     private Task<Task>? progressTimerTask;
+    private SemaphoreSlim progressSemamphore = new SemaphoreSlim(1, 1);
 
     private void StartProgressTimer(bool isChannelChanged)
     {
-        if (progressTimerTask is not null)
+        if (!progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
         {
-            if (isChannelChanged)
+            logger.LogWarning("Could not acquire progress timer semaphore - skipping progress timer start");
+            return;
+        }
+        try
+        {
+            if (progressTimerTask is not null && isChannelChanged && progressTimer is not null)
             {
                 _channelHasChanged = true;
                 progressTimer.Period = TimeSpan.FromSeconds(1);
+                return;
             }
-            return;
-        }
-        _channelHasChanged = true;
-        progressTimerTask = Task.Factory.StartNew(
-            async () =>
-            {
-                progressTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-                while (!tokenSource.IsCancellationRequested)
+            _channelHasChanged = true;
+            progressTimerTask = Task.Factory.StartNew(
+                async () =>
                 {
-                    var hasStarted = await SendProgressAction();
-                    if (hasStarted)
+                    progressTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                    while (!tokenSource.IsCancellationRequested)
                     {
-                        progressTimer.Period = TimeSpan.FromSeconds(60);
+                        var hasStarted = await SendProgressAction();
+                        if (hasStarted)
+                        {
+                            progressTimer.Period = TimeSpan.FromSeconds(60);
+                        }
+                        await progressTimer.WaitForNextTickAsync(tokenSource.Token);
                     }
-                    await progressTimer.WaitForNextTickAsync(tokenSource.Token);
-                }
-            });
-    }
+                });
+        }
+        finally
+        {
+            progressSemamphore.Release();
+        }
 
     private bool _channelHasChanged;
     private double? avgSegmentDuration;
