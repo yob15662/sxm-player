@@ -586,6 +586,7 @@ public class SiriusXMPlayer : IDisposable
         {
             progressSemamphore.Release();
         }
+    }
 
     private bool _channelHasChanged;
     private double? avgSegmentDuration;
