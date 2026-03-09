@@ -23,6 +23,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SXMPlayer.Proxy", "SXMPlaye
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{083FB1E1-5F65-42AD-9E97-61DB0ADC9FE5}"
 	ProjectSection(SolutionItems) = preProject
+		.github\copilot-instructions.md = .github\copilot-instructions.md
 		docs\Refactor.md = docs\Refactor.md
 	EndProjectSection
 EndProject

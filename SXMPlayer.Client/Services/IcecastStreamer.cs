@@ -14,6 +14,7 @@ namespace SXMPlayer;
 public class IcecastStreamer
 {
     private readonly ILogger<SiriusXMPlayer> _logger;
+    private readonly MetadataService _metadataService;
     private readonly SiriusXMPlayer _player;
     private readonly HlsSegmentProducer _segmentProducer;
     private readonly IcyMetadataBuilder _metadataBuilder;
@@ -38,13 +39,14 @@ public class IcecastStreamer
         set => _streamWriter.OutputChunkSize = value;
     }
 
-    public IcecastStreamer(ILogger<SiriusXMPlayer> logger, SiriusXMPlayer player)
+    public IcecastStreamer(ILogger<SiriusXMPlayer> logger, MetadataService metadataService, SiriusXMPlayer player)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _metadataService = metadataService ?? throw new ArgumentNullException(nameof(metadataService));
         _player = player ?? throw new ArgumentNullException(nameof(player));
         _metadataBuilder = new IcyMetadataBuilder();
         _segmentProducer = new HlsSegmentProducer(player, logger);
-        _streamWriter = new IcyStreamWriter(_metadataBuilder, logger, () => _player.GetNowPlaying());
+        _streamWriter = new IcyStreamWriter(_metadataBuilder, logger, _metadataService);
     }
 
     // Re-export SegmentWorkItem for backwards compatibility
@@ -145,6 +147,6 @@ public class IcecastStreamer
     /// </summary>
     public byte[] GetMetadataBlock()
     {
-        return _metadataBuilder.BuildMetadataBlock(_player.GetNowPlaying());
+        return _metadataBuilder.BuildMetadataBlock(_metadataService.GetNowPlaying());
     }
 }
