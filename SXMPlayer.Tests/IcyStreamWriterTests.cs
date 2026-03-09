@@ -113,7 +113,7 @@ public class IcyStreamWriterTests
         Assert.Equal(data.Length, responseBody.Length);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task WriteAsync_WithMetadataEnabled_InjectsMetadata()
     {
         // Arrange
@@ -121,9 +121,26 @@ public class IcyStreamWriterTests
         var builder = CreateMetadataBuilder();
         var writer = new IcyStreamWriter(builder, logger.Object) { OutputChunkSize = 16 * 1024 };
         
-        // Create simple audio data (not AAC, just for testing injection)
-        var data = new byte[20000];
-        Array.Fill(data, (byte)0xFF);
+        // Create valid AAC-like frames that fit within metadata interval
+        // Each frame: 0xFF 0xF0 (sync) + frame size encoding
+        var data = new List<byte>();
+        int frameSize = 256; // Reasonable frame size that fits in metadata interval
+        int targetSize = 20000;
+        
+        while (data.Count < targetSize)
+        {
+            // Create a valid ADTS frame
+            var frame = new byte[frameSize];
+            frame[0] = 0xFF; // Sync marker
+            frame[1] = 0xF0; // Sync marker continuation
+            
+            // Encode frame size in bytes 3-5
+            frame[3] = (byte)((frameSize >> 11) & 0x03);
+            frame[4] = (byte)((frameSize >> 3) & 0xFF);
+            frame[5] = (byte)((frameSize & 0x07) << 5);
+            
+            data.AddRange(frame);
+        }
         
         var mockContext = CreateMockHttpContext();
         var mockResponse = new Mock<HttpResponse>();
@@ -133,7 +150,7 @@ public class IcyStreamWriterTests
 
         // Act
         int result = await writer.WriteAsync(
-            new ReadOnlyMemory<byte>(data),
+            new ReadOnlyMemory<byte>(data.ToArray()),
             mockContext.Object,
             injectMetadata: true,
             metadataInterval: 8162,
@@ -141,7 +158,7 @@ public class IcyStreamWriterTests
             CancellationToken.None);
 
         // Assert
-        // Should have written something
+        // Should have written something (audio + metadata)
         Assert.True(responseBody.Length > 0);
         // Result should be <= metadataInterval (bytes until next metadata)
         Assert.True(result <= 8162);

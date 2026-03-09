@@ -19,7 +19,7 @@ public static class AacFrameAnalyzer
             return -1;
 
         // Check for ADTS sync word (0xFFF in first 12 bits)
-        if ((frame[0] & 0xFF) != 0xFF)
+        if (frame[0] != 0xFF)
             return -1;
         if ((frame[1] & 0xF0) != 0xF0)
             return -1;
@@ -49,11 +49,16 @@ public static class AacFrameAnalyzer
     /// <returns>Offset of the next frame boundary, or data.Length if not found</returns>
     public static int FindNextFrameBoundary(ReadOnlySpan<byte> data, int maxSearch = 192 * 1024)
     {
+        // Need at least 2 bytes to check sync word (0xFF 0xFx)
+        if (data.Length < 2)
+            return data.Length;
+
+        // Adjust search limit to prevent i+1 from going out of bounds
         int searchLimit = Math.Min(data.Length - 1, maxSearch);
 
         for (int i = 0; i < searchLimit; i++)
         {
-            if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xF0) == 0xF0)
+            if (data[i] == 0xFF && (data[i + 1] & 0xF0) == 0xF0)
             {
                 // Found potential ADTS sync marker, verify frame size is reasonable
                 int frameSize = TryDetectFrameSize(data.Slice(i));
@@ -75,7 +80,7 @@ public static class AacFrameAnalyzer
         if (data.Length < 6)
             return false;
 
-        if ((data[0] & 0xFF) != 0xFF)
+        if (data[0] != 0xFF)
             return false;
         if ((data[1] & 0xF0) != 0xF0)
             return false;
