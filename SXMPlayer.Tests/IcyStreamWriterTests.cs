@@ -20,6 +20,28 @@ public class IcyStreamWriterTests
         return new IcyMetadataBuilder();
     }
 
+    private static byte[] CreateValidAdtsFrame(int frameSize = 256)
+    {
+        var frame = new byte[Math.Max(frameSize, 7)];
+        
+        // ADTS sync marker
+        frame[0] = 0xFF;
+        frame[1] = 0xF0;
+        
+        // ADTS fixed header: profile, sampling frequency index
+        frame[2] = 0x50; // MPEG-4 AAC, 44.1kHz
+        
+        // Encode frame size in bytes 3-5
+        frame[3] = (byte)((frameSize >> 11) & 0x03);
+        frame[4] = (byte)((frameSize >> 3) & 0xFF);
+        frame[5] = (byte)((frameSize & 0x07) << 5);
+        
+        // Frame counter (2 bits) + buffer fullness (11 bits)
+        frame[6] = 0x00;
+        
+        return frame;
+    }
+
     private Mock<HttpContext> CreateMockHttpContext()
     {
         var mockResponse = new Mock<HttpResponse>();
@@ -122,23 +144,13 @@ public class IcyStreamWriterTests
         var writer = new IcyStreamWriter(builder, logger.Object) { OutputChunkSize = 16 * 1024 };
         
         // Create valid AAC-like frames that fit within metadata interval
-        // Each frame: 0xFF 0xF0 (sync) + frame size encoding
         var data = new List<byte>();
         int frameSize = 256; // Reasonable frame size that fits in metadata interval
         int targetSize = 20000;
         
         while (data.Count < targetSize)
         {
-            // Create a valid ADTS frame
-            var frame = new byte[frameSize];
-            frame[0] = 0xFF; // Sync marker
-            frame[1] = 0xF0; // Sync marker continuation
-            
-            // Encode frame size in bytes 3-5
-            frame[3] = (byte)((frameSize >> 11) & 0x03);
-            frame[4] = (byte)((frameSize >> 3) & 0xFF);
-            frame[5] = (byte)((frameSize & 0x07) << 5);
-            
+            var frame = CreateValidAdtsFrame(frameSize);
             data.AddRange(frame);
         }
         
@@ -319,21 +331,7 @@ public class IcyStreamWriterTests
         // Create 10 frames to ensure multiple metadata injections
         for (int i = 0; i < 10; i++)
         {
-            var frame = new byte[frameSize];
-            frame[0] = 0xFF; // Sync marker
-            frame[1] = 0xF0; // Sync marker continuation
-            
-            // Encode frame size in bytes 3-5
-            frame[3] = (byte)((frameSize >> 11) & 0x03);
-            frame[4] = (byte)((frameSize >> 3) & 0xFF);
-            frame[5] = (byte)((frameSize & 0x07) << 5);
-            
-            // Fill rest with pattern to detect any corruption
-            for (int j = 6; j < frameSize; j++)
-            {
-                frame[j] = (byte)((i * 17 + j) % 256);
-            }
-            
+            var frame = CreateValidAdtsFrame(frameSize);
             frames.Add(frame);
         }
         
@@ -399,20 +397,7 @@ public class IcyStreamWriterTests
         
         for (int i = 0; i < 3; i++)
         {
-            var frame = new byte[frameSize];
-            frame[0] = 0xFF;
-            frame[1] = 0xF0;
-            
-            frame[3] = (byte)((frameSize >> 11) & 0x03);
-            frame[4] = (byte)((frameSize >> 3) & 0xFF);
-            frame[5] = (byte)((frameSize & 0x07) << 5);
-            
-            // Fill with unique pattern per frame
-            for (int j = 6; j < frameSize; j++)
-            {
-                frame[j] = (byte)(i * 100 + j % 100);
-            }
-            
+            var frame = CreateValidAdtsFrame(frameSize);
             frames.Add(frame);
         }
         
@@ -470,20 +455,7 @@ public class IcyStreamWriterTests
         var frames = new List<byte[]>();
         for (int i = 0; i < frameCount; i++)
         {
-            var frame = new byte[frameSize];
-            frame[0] = 0xFF;
-            frame[1] = 0xF0;
-            
-            frame[3] = (byte)((frameSize >> 11) & 0x03);
-            frame[4] = (byte)((frameSize >> 3) & 0xFF);
-            frame[5] = (byte)((frameSize & 0x07) << 5);
-            
-            // Fill with recognizable pattern
-            for (int j = 6; j < frameSize; j++)
-            {
-                frame[j] = (byte)(42 + i);
-            }
-            
+            var frame = CreateValidAdtsFrame(frameSize);
             frames.Add(frame);
         }
         

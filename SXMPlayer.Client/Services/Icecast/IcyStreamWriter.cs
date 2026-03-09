@@ -108,32 +108,64 @@ public class IcyStreamWriter
             var currentData = audioData.Slice(audioOffset, audioRemaining);
             var currentSpan = currentData.Span;
 
-            // Find the next frame boundary
+            // Try to find the next valid frame boundary
             int frameOffset = AacFrameAnalyzer.FindNextFrameBoundary(currentSpan);
             
             if (frameOffset >= currentSpan.Length)
             {
                 // No valid frame found in remaining data
+                // Rather than lose data, write what we have without frame alignment
                 if (audioRemaining > 0)
                 {
-                    _logger.LogWarning("No valid AAC frame found in remaining {Bytes} bytes, skipping", audioRemaining);
+                    _logger.LogWarning("No valid AAC frame found in remaining {Bytes} bytes, writing as-is", audioRemaining);
+                    
+                    int written = 0;
+                    while (written < audioRemaining)
+                    {
+                        int chunk = Math.Min(audioRemaining - written, OutputChunkSize);
+                        await context.Response.Body.WriteAsync(
+                            audioData.Slice(audioOffset + written, chunk), cancellationToken);
+                        written += chunk;
+                        bytesUntilNextMetadata -= chunk;
+                    }
+                    
+                    audioOffset += audioRemaining;
+                    audioRemaining = 0;
                 }
                 break;
             }
 
-            // If there's junk data before the frame, skip it
+            // If there's junk data before the frame, validate that skipping is safe
             if (frameOffset > 0)
             {
-                _logger.LogDebug("Skipping {Bytes} bytes of non-frame data to align to AAC boundary", frameOffset);
-                audioOffset += frameOffset;
-                audioRemaining -= frameOffset;
-                continue;
+                // Before skipping junk, verify there's actually a valid frame after it
+                // and that we're not in the middle of a frame sequence
+                var afterJunk = currentSpan.Slice(frameOffset);
+                int frameSize = AacFrameAnalyzer.TryDetectFrameSize(afterJunk);
+                
+                if (frameSize > 0 && frameOffset + frameSize <= audioRemaining)
+                {
+                    // Safe to skip: we have confirmed a valid frame after the junk
+                    _logger.LogDebug("Skipping {Bytes} bytes of non-frame data to align to AAC boundary", frameOffset);
+                    audioOffset += frameOffset;
+                    audioRemaining -= frameOffset;
+                    continue;
+                }
+                else
+                {
+                    // Uncertain about frame validity; write junk data as-is rather than skip
+                    _logger.LogWarning("Uncertain frame after junk data; writing {Bytes} bytes without frame alignment", frameOffset);
+                    await context.Response.Body.WriteAsync(audioData.Slice(audioOffset, frameOffset), cancellationToken);
+                    audioOffset += frameOffset;
+                    audioRemaining -= frameOffset;
+                    bytesUntilNextMetadata -= frameOffset;
+                    continue;
+                }
             }
 
             // We're at a valid frame boundary (frameOffset == 0)
-            // Collect consecutive valid frames until we hit metadata boundary or end of data
+            // Carefully collect consecutive valid frames
             int framesTotalSize = 0;
-            int framesCount = 0;
             int checkPos = 0;
 
             while (checkPos < audioRemaining)
@@ -149,20 +181,20 @@ public class IcyStreamWriter
                 // Check if adding this frame would exceed metadata boundary
                 if (framesTotalSize + frameSize > bytesUntilNextMetadata)
                 {
-                    // Frame would cross metadata boundary
+                    // Frame would cross metadata boundary, stop here
                     break;
                 }
 
                 // Check if we have enough data for this frame
                 if (checkPos + frameSize > audioRemaining)
                 {
-                    // Incomplete frame at end of buffer
+                    // Incomplete frame at end of buffer, don't include it
+                    // It will be processed in the next call with more data
                     break;
                 }
 
                 framesTotalSize += frameSize;
                 checkPos += frameSize;
-                framesCount++;
             }
 
             if (framesTotalSize == 0)
@@ -170,11 +202,36 @@ public class IcyStreamWriter
                 // Can't fit any complete frame before metadata boundary
                 int firstFrameSize = AacFrameAnalyzer.TryDetectFrameSize(currentSpan);
                 
+                if (firstFrameSize <= 0)
+                {
+                    // Frame detection failed - write data as-is without frame alignment
+                    _logger.LogWarning("Invalid frame detected at position {Offset}; writing {Bytes} bytes without frame alignment", audioOffset, Math.Min(OutputChunkSize, audioRemaining));
+                    int chunk = Math.Min(OutputChunkSize, audioRemaining);
+                    await context.Response.Body.WriteAsync(
+                        audioData.Slice(audioOffset, chunk), cancellationToken);
+                    audioOffset += chunk;
+                    audioRemaining -= chunk;
+                    bytesUntilNextMetadata -= chunk;
+                    continue;
+                }
+                
                 if (firstFrameSize > metadataInterval)
                 {
-                    _logger.LogWarning("Frame size {FrameSize} exceeds metadata interval {MetadataInterval}, skipping frame", firstFrameSize, metadataInterval);
-                    audioOffset += firstFrameSize;
-                    audioRemaining -= firstFrameSize;
+                    _logger.LogWarning("Frame size {FrameSize} exceeds metadata interval {MetadataInterval}", firstFrameSize, metadataInterval);
+                    
+                    // Write the oversized frame without breaking it up with metadata
+                    int written = 0;
+                    while (written < firstFrameSize && audioOffset + written < audioData.Length)
+                    {
+                        int chunk = Math.Min(firstFrameSize - written, OutputChunkSize);
+                        await context.Response.Body.WriteAsync(
+                            audioData.Slice(audioOffset + written, chunk), cancellationToken);
+                        written += chunk;
+                        bytesUntilNextMetadata -= chunk;
+                    }
+                    
+                    audioOffset += written;
+                    audioRemaining -= written;
                     continue;
                 }
                 
@@ -186,13 +243,13 @@ public class IcyStreamWriter
             }
 
             // Write the complete frames we collected
-            int written = 0;
-            while (written < framesTotalSize)
+            int totalWritten = 0;
+            while (totalWritten < framesTotalSize)
             {
-                int chunk = Math.Min(framesTotalSize - written, OutputChunkSize);
+                int chunk = Math.Min(framesTotalSize - totalWritten, OutputChunkSize);
                 await context.Response.Body.WriteAsync(
-                    audioData.Slice(audioOffset + written, chunk), cancellationToken);
-                written += chunk;
+                    audioData.Slice(audioOffset + totalWritten, chunk), cancellationToken);
+                totalWritten += chunk;
                 bytesUntilNextMetadata -= chunk;
             }
 
