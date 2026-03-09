@@ -38,6 +38,10 @@ public static class AacFrameAnalyzer
         if (length < 7 || length > 8192)
             return -1;
 
+        // Verify that the buffer actually contains enough data for the complete frame
+        if (frame.Length < length)
+            return -1;
+
         return length;
     }
 
@@ -53,17 +57,35 @@ public static class AacFrameAnalyzer
         if (data.Length < 2)
             return data.Length;
 
-        // Adjust search limit to prevent i+1 from going out of bounds
-        int searchLimit = Math.Min(data.Length - 1, maxSearch);
+        // Adjust search limit to not exceed buffer
+        int searchLimit = Math.Min(data.Length, maxSearch);
 
-        for (int i = 0; i < searchLimit; i++)
+        for (int i = 0; i < searchLimit - 1; i++)
         {
             if (data[i] == 0xFF && (data[i + 1] & 0xF0) == 0xF0)
             {
                 // Found potential ADTS sync marker, verify frame size is reasonable
+                // The key validation: TryDetectFrameSize now ensures the complete frame fits in the buffer
                 int frameSize = TryDetectFrameSize(data.Slice(i));
                 if (frameSize > 0)
                 {
+                    // Frame is valid and complete data is available
+                    // Optional: Additional validation to reduce false positives
+                    // Check if next frame position also has valid sync word (if enough data exists)
+                    int nextFramePos = i + frameSize;
+                    if (nextFramePos + 6 <= data.Length)
+                    {
+                        // Enough data to check next frame header
+                        if (data[nextFramePos] == 0xFF && (data[nextFramePos + 1] & 0xF0) == 0xF0)
+                        {
+                            // Strong confirmation: next frame also has valid sync word
+                            return i;
+                        }
+                        // Next position doesn't have sync word, but could be end of stream
+                        // or padding. Still accept this frame since it's structurally valid.
+                        // In practice, 0xFF 0xF0 appearing as false positive is rare.
+                    }
+                    // Either way, we found a complete valid frame
                     return i;
                 }
             }
