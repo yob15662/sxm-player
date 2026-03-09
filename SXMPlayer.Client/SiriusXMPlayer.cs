@@ -258,13 +258,13 @@ public class SiriusXMPlayer : IDisposable
             position = new Position() { AbsoluteTime = audioTS.Value.ToString("o") };
             position2 = new Position2() { AbsoluteTime = position.AbsoluteTime };
         }
+        if (_currentChannel.Entity.Id is null || nowPlaying.id is null)
+        {
+            logger.LogWarning("Cannot send progress action - no current channel or no nowPlaying data");
+            return false;
+        }
         if (_channelHasChanged)
         {
-            if (_currentChannel.Entity.Id is null || nowPlaying.id is null)
-            {
-                logger.LogWarning("Cannot send progress action - no current channel or no nowPlaying data");
-                return false;
-            }
             _channelHasChanged = false;
             startTs = DateTimeOffset.UtcNow;
             action = new()
