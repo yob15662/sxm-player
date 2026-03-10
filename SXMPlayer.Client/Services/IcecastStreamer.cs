@@ -85,7 +85,14 @@ public class IcecastStreamer
             });
 
             // Run producer with adapter
-            await _segmentProducer.StartProducer(hlsWriter.Writer, channelIdProvider, listener, playlistRefreshCt, clientDisconnectCt);
+            var (producerTask, wasAlreadyActive) = _segmentProducer.StartProducer(hlsWriter.Writer, channelIdProvider, listener, playlistRefreshCt, clientDisconnectCt);
+            
+            if (wasAlreadyActive)
+            {
+                _logger.LogWarning($"HLS segment producer was already active for client {listener.IPAddress}. Replaced previous producer.");
+            }
+            
+            await producerTask;
         });
 
         return adapterTask;

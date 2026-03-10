@@ -170,6 +170,7 @@ public class SiriusXMPlayer : IDisposable
 
     public void Dispose()
     {
+        StopProgressTimer();
         _session?.Dispose();
         tokenSource.Cancel();
         sxmSessionService.Dispose();
@@ -548,8 +549,27 @@ public class SiriusXMPlayer : IDisposable
     }
 
     private PeriodicTimer? progressTimer;
-    private Task<Task>? progressTimerTask;
+    private Task? progressTimerTask;
     private SemaphoreSlim progressSemamphore = new SemaphoreSlim(1, 1);
+
+    private void StopProgressTimer()
+    {
+        if (!progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
+        {
+            logger.LogWarning("Could not acquire progress timer semaphore - skipping progress timer stop");
+            return;
+        }
+
+        try
+        {
+            progressTimer?.Dispose();
+            progressTimer = null;
+        }
+        finally
+        {
+            progressSemamphore.Release();
+        }
+    }
 
     private void StartProgressTimer(bool isChannelChanged)
     {
@@ -560,27 +580,73 @@ public class SiriusXMPlayer : IDisposable
         }
         try
         {
-            if (progressTimerTask is not null && isChannelChanged && progressTimer is not null)
+            if (progressTimerTask is not null && !progressTimerTask.IsCompleted)
             {
-                _channelHasChanged = true;
-                progressTimer.Period = TimeSpan.FromSeconds(1);
+                if (isChannelChanged && progressTimer is not null)
+                {
+                    _channelHasChanged = true;
+                    progressTimer.Period = TimeSpan.FromSeconds(1);
+                }
                 return;
             }
-            _channelHasChanged = true;
-            progressTimerTask = Task.Factory.StartNew(
-                async () =>
+
+            _channelHasChanged = isChannelChanged;
+
+            progressTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            progressTimerTask = Task.Run(async () =>
+            {
+                try
                 {
-                    progressTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
                     while (!tokenSource.IsCancellationRequested)
                     {
+                        if (!HasActiveClient())
+                        {
+                            logger.LogDebug("Stopping progress timer - no active clients");
+                            break;
+                        }
+
                         var hasStarted = await SendProgressAction();
-                        if (hasStarted)
+                        if (hasStarted && progressTimer is not null)
                         {
                             progressTimer.Period = TimeSpan.FromSeconds(60);
                         }
-                        await progressTimer.WaitForNextTickAsync(tokenSource.Token);
+
+                        if (progressTimer is null)
+                        {
+                            break;
+                        }
+
+                        var hasNextTick = await progressTimer.WaitForNextTickAsync(tokenSource.Token);
+                        if (!hasNextTick)
+                        {
+                            break;
+                        }
                     }
-                });
+                }
+                catch (OperationCanceledException) when (tokenSource.IsCancellationRequested)
+                {
+                }
+                finally
+                {
+                    if (progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
+                    {
+                        try
+                        {
+                            progressTimer?.Dispose();
+                            progressTimer = null;
+                            progressTimerTask = null;
+                        }
+                        finally
+                        {
+                            progressSemamphore.Release();
+                        }
+                    }
+                    else
+                    {
+                        progressTimerTask = null;
+                    }
+                }
+            });
         }
         finally
         {
@@ -732,6 +798,11 @@ public class SiriusXMPlayer : IDisposable
                 newPrimary.IsPrimary = true;
                 logger.LogInformation($"Setting primary client to {newPrimary.IPAddress}");
             }
+        }
+
+        if (!HasActiveClient())
+        {
+            StopProgressTimer();
         }
     }
 

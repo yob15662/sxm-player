@@ -33,8 +33,10 @@ public class HlsSegmentProducer
     /// <summary>
     /// Starts producing segments for a channel, writing them to the provided channel writer.
     /// Handles playlist fetching, decryption, and segment queuing.
+    /// If a producer already exists for this client, the previous one is cancelled and replaced.
     /// </summary>
-    public Task StartProducer(
+    /// <returns>Task that completes when the producer stops. Returns true if a producer already existed for this client.</returns>
+    public (Task ProducerTask, bool WasAlreadyActive) StartProducer(
         ChannelWriter<SegmentWorkItem> writer,
         Func<Task<ChannelItemData>> channelProvider,
         SXMListener listener,
@@ -43,12 +45,17 @@ public class HlsSegmentProducer
     {
         _logger.LogInformation("Starting HLS segment producer.");
 
-        // Cancel any existing producer for this client
-        if (_activeProducers.TryRemove(listener, out var existingCts))
+        // Check if a producer already exists for this client
+        bool wasAlreadyActive = _activeProducers.TryGetValue(listener, out var existingCts);
+        
+        if (wasAlreadyActive)
         {
-            _logger.LogInformation($"Cancelling previous producer for client {listener.IPAddress}");
-            existingCts.Cancel();
-            existingCts.Dispose();
+            _logger.LogInformation($"Producer already active for client {listener.IPAddress}. Cancelling previous producer.");
+            if (existingCts != null)
+            {
+                existingCts.Cancel();
+                existingCts.Dispose();
+            }
         }
 
         // Create a new cancellation token source for this producer
@@ -58,7 +65,7 @@ public class HlsSegmentProducer
         // Combine all cancellation tokens
         var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(playlistRefreshToken, clientDisconnectToken, producerCts.Token);
 
-        return Task.Run(async () =>
+        var producerTask = Task.Run(async () =>
         {
             var combinedCt = combinedCts.Token;
             long lastMediaSequence = -1;
@@ -194,6 +201,8 @@ public class HlsSegmentProducer
                 combinedCts.Dispose();
             }
         }, clientDisconnectToken).ContinueWith(t => writer.Complete(t.Exception?.GetBaseException()), TaskContinuationOptions.None);
+
+        return (producerTask, wasAlreadyActive);
     }
 
     /// <summary>
