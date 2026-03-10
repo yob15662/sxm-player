@@ -15,7 +15,7 @@ public static class AacFrameAnalyzer
     /// <returns>Frame size in bytes if a valid ADTS header is found; -1 otherwise</returns>
     public static int TryDetectFrameSize(ReadOnlySpan<byte> frame)
     {
-        if (frame.Length < 6)
+        if (frame.Length < 7)
             return -1;
 
         // Check for ADTS sync word (0xFFF in first 12 bits)
@@ -36,10 +36,6 @@ public static class AacFrameAnalyzer
 
         // Frame length must be at least 7 bytes (header) and reasonable size
         if (length < 7 || length > 8192)
-            return -1;
-
-        // Verify that the buffer actually contains enough data for the complete frame
-        if (frame.Length < length)
             return -1;
 
         return length;
@@ -65,7 +61,6 @@ public static class AacFrameAnalyzer
             if (data[i] == 0xFF && (data[i + 1] & 0xF0) == 0xF0)
             {
                 // Found potential ADTS sync marker, verify frame size is reasonable
-                // The key validation: TryDetectFrameSize now ensures the complete frame fits in the buffer
                 int frameSize = TryDetectFrameSize(data.Slice(i));
                 if (frameSize > 0)
                 {

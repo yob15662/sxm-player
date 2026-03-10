@@ -11,15 +11,11 @@ public class AacFrameAnalyzerTests
     /// </summary>
     private static byte[] CreateValidAdtsFrame(int frameSize = 200)
     {
-        var frame = new byte[Math.Max(frameSize, 6)]; // Ensure minimum size
+        var frame = new byte[Math.Max(frameSize, 7)]; // Ensure minimum size
         
         // ADTS sync marker: 0xFF 0xFx (12 bits of 1s)
         frame[0] = 0xFF;
         frame[1] = 0xF0; // Bits 4-7 are the lower 4 bits of sync marker
-        
-        // Byte 2: MPEG version (2 bits) + Layer (2 bits) + protection_absent (1 bit) + profile (2 bits) + sampling_frequency_index (4 bits)
-        // Set reasonable defaults: MPEG-4 (0), Layer (0), protection_absent (1), profile (1), sampling_frequency_index (4 = 44.1kHz)
-        frame[2] = 0x50; // 0101 0000 = no CRC, profile 1, 44.1kHz
         
         // Encode frame size in bytes 3-5
         // Frame size = (byte3[1:0] << 11) | (byte4 << 3) | (byte5[7:5])
