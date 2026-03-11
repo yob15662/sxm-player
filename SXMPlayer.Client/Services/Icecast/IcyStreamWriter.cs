@@ -96,67 +96,42 @@ public class IcyStreamWriter
 
         while (audioRemaining > 0)
         {
-            // Inject metadata if due
+            var currentData = audioData.Slice(audioOffset, audioRemaining);
+            var currentSpan = currentData.Span;
+            int frameSize = AacFrameAnalyzer.TryDetectFrameSize(currentSpan);
+
+            if (frameSize <= 0)
+            {
+                int nextBoundary = AacFrameAnalyzer.FindNextFrameBoundary(currentSpan);
+                int chunk = nextBoundary < currentSpan.Length
+                    ? nextBoundary
+                    : Math.Min(OutputChunkSize, audioRemaining);
+
+                if (chunk <= 0)
+                {
+                    chunk = Math.Min(OutputChunkSize, audioRemaining);
+                }
+
+                await context.Response.Body.WriteAsync(audioData.Slice(audioOffset, chunk), cancellationToken);
+                audioOffset += chunk;
+                audioRemaining -= chunk;
+                bytesUntilNextMetadata -= chunk;
+                continue;
+            }
+
             if (bytesUntilNextMetadata <= 0)
             {
                 var meta = _metadataBuilder.BuildMetadataBlock(_metadataService?.GetNowPlaying());
                 await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
                 bytesUntilNextMetadata = metadataInterval;
-            }
-
-            // Get current position data
-            var currentData = audioData.Slice(audioOffset, audioRemaining);
-            var currentSpan = currentData.Span;
-
-            // Strategy: Only proceed with frame-aware injection if we can reliably detect a frame
-            // at the current position. If we encounter any ambiguity, fall back to simple chunked write.
-            
-            int frameSize = AacFrameAnalyzer.TryDetectFrameSize(currentSpan);
-            
-            if (frameSize <= 0)
-            {
-                // Can't detect a frame at current position
-                // Write data conservatively in small chunks to avoid breaking frames
-                int chunk = Math.Min(Math.Min(OutputChunkSize, bytesUntilNextMetadata), audioRemaining);
-                if (chunk > 0)
-                {
-                    await context.Response.Body.WriteAsync(
-                        audioData.Slice(audioOffset, chunk), cancellationToken);
-                    audioOffset += chunk;
-                    audioRemaining -= chunk;
-                    bytesUntilNextMetadata -= chunk;
-                }
-                else
-                {
-                    // Can't make progress; inject metadata and try again
-                    var meta = _metadataBuilder.BuildMetadataBlock(_metadataService?.GetNowPlaying());
-                    await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
-                    bytesUntilNextMetadata = metadataInterval;
-                }
                 continue;
             }
 
-            // We detected a valid frame
-            // Determine how much we can write before the next metadata boundary
-            int maxToWrite = Math.Min(frameSize, bytesUntilNextMetadata);
-            
-            if (maxToWrite < frameSize)
-            {
-                // Frame would cross metadata boundary
-                // Inject metadata and try again with fresh interval
-                var meta = _metadataBuilder.BuildMetadataBlock(_metadataService?.GetNowPlaying());
-                await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
-                bytesUntilNextMetadata = metadataInterval;
-                continue;
-            }
-
-            // Safe to write the entire frame
             int written = 0;
             while (written < frameSize && audioOffset + written < audioData.Length)
             {
                 int chunk = Math.Min(frameSize - written, OutputChunkSize);
-                await context.Response.Body.WriteAsync(
-                    audioData.Slice(audioOffset + written, chunk), cancellationToken);
+                await context.Response.Body.WriteAsync(audioData.Slice(audioOffset + written, chunk), cancellationToken);
                 written += chunk;
                 bytesUntilNextMetadata -= chunk;
             }

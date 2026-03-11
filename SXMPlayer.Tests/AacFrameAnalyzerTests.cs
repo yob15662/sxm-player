@@ -11,20 +11,25 @@ public class AacFrameAnalyzerTests
     /// </summary>
     private static byte[] CreateValidAdtsFrame(int frameSize = 200)
     {
-        var frame = new byte[Math.Max(frameSize, 7)]; // Ensure minimum size
-        
-        // ADTS sync marker: 0xFF 0xFx (12 bits of 1s)
+        var frame = new byte[Math.Max(frameSize, 7)];
+
         frame[0] = 0xFF;
-        frame[1] = 0xF0; // Bits 4-7 are the lower 4 bits of sync marker
-        
-        // Encode frame size in bytes 3-5
-        // Frame size = (byte3[1:0] << 11) | (byte4 << 3) | (byte5[7:5])
+        frame[1] = 0xF1;
+        frame[2] = 0x50;
+
         int encodedSize = frameSize;
         frame[3] = (byte)((encodedSize >> 11) & 0x03);
         frame[4] = (byte)((encodedSize >> 3) & 0xFF);
         frame[5] = (byte)((encodedSize & 0x07) << 5);
-        
+
         return frame;
+    }
+
+    private static void EncodeFrameSize(byte[] frame, int frameSize)
+    {
+        frame[3] = (byte)((frameSize >> 11) & 0x03);
+        frame[4] = (byte)((frameSize >> 3) & 0xFF);
+        frame[5] = (byte)((frameSize & 0x07) << 5);
     }
 
     [Fact]
@@ -47,7 +52,7 @@ public class AacFrameAnalyzerTests
         // Arrange
         var shortFrame = new byte[5]; // Less than 6 bytes required
         shortFrame[0] = 0xFF;
-        shortFrame[1] = 0xF0;
+        shortFrame[1] = 0xF1;
 
         // Act
         int result = AacFrameAnalyzer.TryDetectFrameSize(shortFrame);
@@ -76,12 +81,10 @@ public class AacFrameAnalyzerTests
         // Arrange
         var frame = new byte[10];
         frame[0] = 0xFF;
-        frame[1] = 0xF0;
-        // Encode a size < 7 (too small)
+        frame[1] = 0xF1;
+        frame[2] = 0x50;
         int smallSize = 5;
-        frame[3] = (byte)((smallSize >> 11) & 0x03);
-        frame[4] = (byte)((smallSize >> 3) & 0xFF);
-        frame[5] = (byte)((smallSize & 0x07) << 5);
+        EncodeFrameSize(frame, smallSize);
 
         // Act
         int result = AacFrameAnalyzer.TryDetectFrameSize(frame);
@@ -96,17 +99,49 @@ public class AacFrameAnalyzerTests
         // Arrange
         var frame = new byte[10];
         frame[0] = 0xFF;
-        frame[1] = 0xF0;
-        // Encode a size > 8192
+        frame[1] = 0xF1;
+        frame[2] = 0x50;
         int invalidSize = 8193;
-        frame[3] = (byte)((invalidSize >> 11) & 0x03);
-        frame[4] = (byte)((invalidSize >> 3) & 0xFF);
-        frame[5] = (byte)((invalidSize & 0x07) << 5);
+        EncodeFrameSize(frame, invalidSize);
 
         // Act
         int result = AacFrameAnalyzer.TryDetectFrameSize(frame);
 
         // Assert
+        Assert.Equal(-1, result);
+    }
+
+    [Fact]
+    public void TryDetectFrameSize_WithInvalidLayerBits_ReturnsNegativeOne()
+    {
+        var frame = CreateValidAdtsFrame(128);
+        frame[1] = 0xF3;
+
+        int result = AacFrameAnalyzer.TryDetectFrameSize(frame);
+
+        Assert.Equal(-1, result);
+    }
+
+    [Fact]
+    public void TryDetectFrameSize_WithReservedSamplingFrequency_ReturnsNegativeOne()
+    {
+        var frame = CreateValidAdtsFrame(128);
+        frame[2] = 0x3C;
+
+        int result = AacFrameAnalyzer.TryDetectFrameSize(frame);
+
+        Assert.Equal(-1, result);
+    }
+
+    [Fact]
+    public void TryDetectFrameSize_WithCrcHeaderSmallerThanNineBytes_ReturnsNegativeOne()
+    {
+        var frame = CreateValidAdtsFrame(8);
+        frame[1] = 0xF0;
+        EncodeFrameSize(frame, 8);
+
+        int result = AacFrameAnalyzer.TryDetectFrameSize(frame);
+
         Assert.Equal(-1, result);
     }
 
@@ -204,14 +239,34 @@ public class AacFrameAnalyzerTests
         var data = new byte[500];
         var frame1 = CreateValidAdtsFrame(100);
         var frame2 = CreateValidAdtsFrame(150);
-        
+
         Array.Copy(frame1, 0, data, 50, frame1.Length);
-        Array.Copy(frame2, 0, data, 200, frame2.Length);
+        Array.Copy(frame2, 0, data, 150, frame2.Length);
 
         // Act
         int result = AacFrameAnalyzer.FindNextFrameBoundary(data.AsSpan());
 
         // Assert
-        Assert.Equal(50, result); // Should find first frame
+        Assert.Equal(50, result);
+    }
+
+    [Fact]
+    public void FindNextFrameBoundary_WithFalsePositiveBeforeRealFrame_SkipsFalsePositive()
+    {
+        var data = new byte[400];
+
+        data[0] = 0xFF;
+        data[1] = 0xF1;
+        data[2] = 0x50;
+        EncodeFrameSize(data, 60);
+
+        var frame1 = CreateValidAdtsFrame(100);
+        var frame2 = CreateValidAdtsFrame(100);
+        Array.Copy(frame1, 0, data, 80, frame1.Length);
+        Array.Copy(frame2, 0, data, 180, frame2.Length);
+
+        int result = AacFrameAnalyzer.FindNextFrameBoundary(data.AsSpan());
+
+        Assert.Equal(80, result);
     }
 }

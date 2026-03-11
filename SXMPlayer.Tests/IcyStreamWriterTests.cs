@@ -23,22 +23,16 @@ public class IcyStreamWriterTests
     private static byte[] CreateValidAdtsFrame(int frameSize = 256)
     {
         var frame = new byte[Math.Max(frameSize, 7)];
-        
-        // ADTS sync marker
+
         frame[0] = 0xFF;
-        frame[1] = 0xF0;
-        
-        // ADTS fixed header: profile, sampling frequency index
-        frame[2] = 0x50; // MPEG-4 AAC, 44.1kHz
-        
-        // Encode frame size in bytes 3-5
+        frame[1] = 0xF1;
+        frame[2] = 0x50;
+
         frame[3] = (byte)((frameSize >> 11) & 0x03);
         frame[4] = (byte)((frameSize >> 3) & 0xFF);
         frame[5] = (byte)((frameSize & 0x07) << 5);
-        
-        // Frame counter (2 bits) + buffer fullness (11 bits)
         frame[6] = 0x00;
-        
+
         return frame;
     }
 
@@ -494,5 +488,65 @@ public class IcyStreamWriterTests
         
         // Total output should include audio + metadata
         Assert.True(responseBody.Length > audioData.Length);
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenMisaligned_DefersMetadataUntilNextFrameBoundary()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        byte[] prefix = Enumerable.Range(1, 60).Select(i => (byte)i).ToArray();
+        var frame1 = CreateValidAdtsFrame(256);
+        var frame2 = CreateValidAdtsFrame(256);
+        var audioData = prefix.Concat(frame1).Concat(frame2).ToArray();
+
+        var mockContext = CreateMockHttpContext();
+        var responseBody = new MemoryStream();
+        mockContext.Setup(c => c.Response.Body).Returns(responseBody);
+
+        await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(audioData),
+            mockContext.Object,
+            injectMetadata: true,
+            metadataInterval: 32,
+            bytesUntilNextMetadata: 32,
+            CancellationToken.None);
+
+        var writtenData = responseBody.ToArray();
+
+        Assert.True(writtenData.Length > audioData.Length);
+        Assert.Equal(prefix, writtenData.Take(prefix.Length).ToArray());
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task WriteAsync_WhenFrameExceedsRemainingMetadataBudget_DefersMetadataUntilAfterFrame()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var frame1 = CreateValidAdtsFrame(256);
+        var frame2 = CreateValidAdtsFrame(256);
+        var audioData = frame1.Concat(frame2).ToArray();
+
+        var mockContext = CreateMockHttpContext();
+        var responseBody = new MemoryStream();
+        mockContext.Setup(c => c.Response.Body).Returns(responseBody);
+
+        int bytesUntilNextMetadata = await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(audioData),
+            mockContext.Object,
+            injectMetadata: true,
+            metadataInterval: 32,
+            bytesUntilNextMetadata: 32,
+            CancellationToken.None);
+
+        var writtenData = responseBody.ToArray();
+
+        Assert.True(writtenData.Length > audioData.Length);
+        Assert.Equal(frame1, writtenData.Take(frame1.Length).ToArray());
+        Assert.True(bytesUntilNextMetadata <= 32);
     }
 }
