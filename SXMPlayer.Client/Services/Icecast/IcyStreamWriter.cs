@@ -106,7 +106,7 @@ public class IcyStreamWriter
         int audioOffset = 0;
         int audioRemaining = audioData.Length;
 
-        if (audioRemaining > 0)
+        if (audioRemaining > 0 && !AacFrameAnalyzer.IsValidAdtsHeader(audioData.Span))
         {
             int firstBoundary = AacFrameAnalyzer.FindNextFrameBoundary(audioData.Span, maxSearch: Math.Min(audioRemaining, 4096));
             if (firstBoundary > 0 && firstBoundary < audioRemaining)

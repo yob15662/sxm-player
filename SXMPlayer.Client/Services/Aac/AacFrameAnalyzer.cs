@@ -71,7 +71,10 @@ public static class AacFrameAnalyzer
                 continue;
 
             int nextFramePos = i + frameSize;
-            if (nextFramePos >= data.Length)
+            if (nextFramePos > data.Length)
+                continue;
+
+            if (nextFramePos == data.Length)
                 return i;
 
             if (nextFramePos + MinAdtsHeaderSize > data.Length)

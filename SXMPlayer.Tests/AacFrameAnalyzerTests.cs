@@ -269,4 +269,27 @@ public class AacFrameAnalyzerTests
 
         Assert.Equal(80, result);
     }
+
+    [Fact]
+    public void FindNextFrameBoundary_WithTruncatedFalsePositiveBeforeRealFrame_SkipsTruncatedCandidate()
+    {
+        var data = new byte[240];
+        const int truncatedFrameSize = 240;
+
+        data[10] = 0xFF;
+        data[11] = 0xF1;
+        data[12] = 0x50;
+        data[13] = (byte)((truncatedFrameSize >> 11) & 0x03);
+        data[14] = (byte)((truncatedFrameSize >> 3) & 0xFF);
+        data[15] = (byte)((truncatedFrameSize & 0x07) << 5);
+
+        var frame1 = CreateValidAdtsFrame(80);
+        var frame2 = CreateValidAdtsFrame(80);
+        Array.Copy(frame1, 0, data, 80, frame1.Length);
+        Array.Copy(frame2, 0, data, 160, frame2.Length);
+
+        int result = AacFrameAnalyzer.FindNextFrameBoundary(data.AsSpan());
+
+        Assert.Equal(80, result);
+    }
 }

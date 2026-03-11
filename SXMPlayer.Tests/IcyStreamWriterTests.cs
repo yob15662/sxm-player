@@ -107,7 +107,7 @@ public class IcyStreamWriterTests
         // Arrange
         var logger = CreateMockLogger();
         var builder = CreateMetadataBuilder();
-        var writer = new IcyStreamWriter(builder, logger.Object);
+        var writer = new IcyStreamWriter(builder, logger.Object) { OutputChunkSize = 10 };
         var data = new byte[100];
         
         var mockContext = CreateMockHttpContext();
@@ -580,5 +580,67 @@ public class IcyStreamWriterTests
 
         Assert.True(writtenData.Length > 32);
         Assert.True(writtenData[32] >= 0);
+    }
+
+    [Fact]
+    public async Task WriteAsync_WithMetadataEnabled_StrippingMetadataReproducesOriginalAudio()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var audioData = Enumerable.Range(0, 9)
+            .SelectMany(_ => CreateValidAdtsFrame(300))
+            .ToArray();
+
+        var mockContext = CreateMockHttpContext();
+        var responseBody = new MemoryStream();
+        mockContext.Setup(c => c.Response.Body).Returns(responseBody);
+
+        await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(audioData),
+            mockContext.Object,
+            injectMetadata: true,
+            metadataInterval: 1024,
+            bytesUntilNextMetadata: 1024,
+            CancellationToken.None);
+
+        var recoveredAudio = StripIcyMetadata(responseBody.ToArray(), 1024);
+        Assert.Equal(audioData, recoveredAudio.Take(audioData.Length).ToArray());
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenPrefixContainsTruncatedFalsePositive_ResyncsToRealFrameBoundary()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var prefix = new byte[70];
+        const int truncatedFrameSize = 128;
+        prefix[10] = 0xFF;
+        prefix[11] = 0xF1;
+        prefix[12] = 0x50;
+        prefix[13] = (byte)((truncatedFrameSize >> 11) & 0x03);
+        prefix[14] = (byte)((truncatedFrameSize >> 3) & 0xFF);
+        prefix[15] = (byte)((truncatedFrameSize & 0x07) << 5);
+
+        var expectedAudio = CreateValidAdtsFrame(256).Concat(CreateValidAdtsFrame(256)).ToArray();
+        var audioData = prefix.Concat(expectedAudio).ToArray();
+
+        var mockContext = CreateMockHttpContext();
+        var responseBody = new MemoryStream();
+        mockContext.Setup(c => c.Response.Body).Returns(responseBody);
+
+        await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(audioData),
+            mockContext.Object,
+            injectMetadata: true,
+            metadataInterval: 64,
+            bytesUntilNextMetadata: 64,
+            CancellationToken.None);
+
+        var recoveredAudio = StripIcyMetadata(responseBody.ToArray(), 64);
+        Assert.Equal(expectedAudio, recoveredAudio.Take(expectedAudio.Length).ToArray());
     }
 }
