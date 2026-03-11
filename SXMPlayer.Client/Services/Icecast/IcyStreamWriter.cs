@@ -82,7 +82,9 @@ public class IcyStreamWriter
     }
 
     /// <summary>
-    /// Writes audio data with ICY metadata injection at AAC frame boundaries.
+    /// Writes audio data with ICY metadata injection.
+    /// ICY metadata must be emitted at exact byte intervals, otherwise ICY clients will
+    /// mis-parse the stream and audio will be corrupted.
     /// </summary>
     private async Task<int> WriteWithFrameAwareMetadataAsync(
         ReadOnlyMemory<byte> audioData,
@@ -91,30 +93,38 @@ public class IcyStreamWriter
         int bytesUntilNextMetadata,
         CancellationToken cancellationToken)
     {
+        if (metadataInterval <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(metadataInterval), "Metadata interval must be greater than zero.");
+        }
+
+        if (bytesUntilNextMetadata <= 0 || bytesUntilNextMetadata > metadataInterval)
+        {
+            bytesUntilNextMetadata = metadataInterval;
+        }
+
         int audioOffset = 0;
         int audioRemaining = audioData.Length;
 
+        if (audioRemaining > 0)
+        {
+            int firstBoundary = AacFrameAnalyzer.FindNextFrameBoundary(audioData.Span, maxSearch: Math.Min(audioRemaining, 4096));
+            if (firstBoundary > 0 && firstBoundary < audioRemaining)
+            {
+                _logger.LogDebug("Skipping {SkippedBytes} leading bytes before first ADTS frame boundary.", firstBoundary);
+                audioOffset += firstBoundary;
+                audioRemaining -= firstBoundary;
+            }
+            else if (firstBoundary >= audioRemaining)
+            {
+                await context.Response.Body.FlushAsync(cancellationToken);
+                return bytesUntilNextMetadata;
+            }
+        }
+
         while (audioRemaining > 0)
         {
-            var currentData = audioData.Slice(audioOffset, audioRemaining);
-            var currentSpan = currentData.Span;
-            int frameSize = AacFrameAnalyzer.TryDetectFrameSize(currentSpan);
-
-            if (frameSize <= 0)
-            {
-                int nextBoundary = AacFrameAnalyzer.FindNextFrameBoundary(currentSpan);
-                if (nextBoundary >= currentSpan.Length)
-                {
-                    break;
-                }
-
-                int skip = Math.Max(nextBoundary, 1);
-                audioOffset += skip;
-                audioRemaining -= skip;
-                continue;
-            }
-
-            if (bytesUntilNextMetadata <= 0)
+            if (bytesUntilNextMetadata == 0)
             {
                 var meta = _metadataBuilder.BuildMetadataBlock(_metadataService?.GetNowPlaying());
                 await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
@@ -122,17 +132,12 @@ public class IcyStreamWriter
                 continue;
             }
 
-            int written = 0;
-            while (written < frameSize && audioOffset + written < audioData.Length)
-            {
-                int chunk = Math.Min(frameSize - written, OutputChunkSize);
-                await context.Response.Body.WriteAsync(audioData.Slice(audioOffset + written, chunk), cancellationToken);
-                written += chunk;
-                bytesUntilNextMetadata -= chunk;
-            }
+            int chunk = Math.Min(audioRemaining, Math.Min(bytesUntilNextMetadata, OutputChunkSize));
+            await context.Response.Body.WriteAsync(audioData.Slice(audioOffset, chunk), cancellationToken);
 
-            audioOffset += written;
-            audioRemaining -= written;
+            audioOffset += chunk;
+            audioRemaining -= chunk;
+            bytesUntilNextMetadata -= chunk;
         }
 
         await context.Response.Body.FlushAsync(cancellationToken);

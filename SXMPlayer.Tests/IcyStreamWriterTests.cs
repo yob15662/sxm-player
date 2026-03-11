@@ -47,6 +47,31 @@ public class IcyStreamWriterTests
         return mockContext;
     }
 
+    private static byte[] StripIcyMetadata(byte[] payload, int metadataInterval)
+    {
+        var output = new List<byte>(payload.Length);
+        int index = 0;
+
+        while (index < payload.Length)
+        {
+            int audioCount = Math.Min(metadataInterval, payload.Length - index);
+            output.AddRange(payload.AsSpan(index, audioCount).ToArray());
+            index += audioCount;
+
+            if (index >= payload.Length)
+            {
+                break;
+            }
+
+            int metadataLengthBlocks = payload[index];
+            index++;
+            int metadataBytes = metadataLengthBlocks * 16;
+            index = Math.Min(index + metadataBytes, payload.Length);
+        }
+
+        return output.ToArray();
+    }
+
     [Fact]
     public async Task WriteAsync_WithoutMetadata_WritesDataAsIs()
     {
@@ -500,7 +525,8 @@ public class IcyStreamWriterTests
         byte[] prefix = Enumerable.Range(1, 60).Select(i => (byte)i).ToArray();
         var frame1 = CreateValidAdtsFrame(256);
         var frame2 = CreateValidAdtsFrame(256);
-        var audioData = prefix.Concat(frame1).Concat(frame2).ToArray();
+        var expectedAudio = frame1.Concat(frame2).ToArray();
+        var audioData = prefix.Concat(expectedAudio).ToArray();
 
         var mockContext = CreateMockHttpContext();
         var responseBody = new MemoryStream();
@@ -515,13 +541,14 @@ public class IcyStreamWriterTests
             CancellationToken.None);
 
         var writtenData = responseBody.ToArray();
+        Assert.True(writtenData.Length > expectedAudio.Length);
 
-        Assert.True(writtenData.Length > frame1.Length + frame2.Length);
-        Assert.Equal(frame1, writtenData.Take(frame1.Length).ToArray());
+        var recoveredAudio = StripIcyMetadata(writtenData, 32);
+        Assert.Equal(expectedAudio, recoveredAudio.Take(expectedAudio.Length).ToArray());
     }
 
     [Fact(Timeout = 5000)]
-    public async Task WriteAsync_WhenFrameExceedsRemainingMetadataBudget_DefersMetadataUntilAfterFrame()
+    public async Task WriteAsync_WhenFrameExceedsRemainingMetadataBudget_InsertsMetadataAtExactInterval()
     {
         var logger = CreateMockLogger();
         var builder = CreateMetadataBuilder();
@@ -546,7 +573,12 @@ public class IcyStreamWriterTests
         var writtenData = responseBody.ToArray();
 
         Assert.True(writtenData.Length > audioData.Length);
-        Assert.Equal(frame1, writtenData.Take(frame1.Length).ToArray());
         Assert.True(bytesUntilNextMetadata <= 32);
+
+        var recoveredAudio = StripIcyMetadata(writtenData, 32);
+        Assert.Equal(audioData, recoveredAudio.Take(audioData.Length).ToArray());
+
+        Assert.True(writtenData.Length > 32);
+        Assert.True(writtenData[32] >= 0);
     }
 }
