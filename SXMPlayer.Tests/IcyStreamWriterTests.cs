@@ -491,7 +491,7 @@ public class IcyStreamWriterTests
     }
 
     [Fact]
-    public async Task WriteAsync_WhenMisaligned_DefersMetadataUntilNextFrameBoundary()
+    public async Task WriteAsync_WhenMisaligned_SkipsBytesUntilNextFrameBoundary()
     {
         var logger = CreateMockLogger();
         var builder = CreateMetadataBuilder();
@@ -516,8 +516,8 @@ public class IcyStreamWriterTests
 
         var writtenData = responseBody.ToArray();
 
-        Assert.True(writtenData.Length > audioData.Length);
-        Assert.Equal(prefix, writtenData.Take(prefix.Length).ToArray());
+        Assert.True(writtenData.Length > frame1.Length + frame2.Length);
+        Assert.Equal(frame1, writtenData.Take(frame1.Length).ToArray());
     }
 
     [Fact(Timeout = 5000)]

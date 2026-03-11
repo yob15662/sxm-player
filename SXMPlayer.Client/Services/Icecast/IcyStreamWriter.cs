@@ -103,19 +103,14 @@ public class IcyStreamWriter
             if (frameSize <= 0)
             {
                 int nextBoundary = AacFrameAnalyzer.FindNextFrameBoundary(currentSpan);
-                int chunk = nextBoundary < currentSpan.Length
-                    ? nextBoundary
-                    : Math.Min(OutputChunkSize, audioRemaining);
-
-                if (chunk <= 0)
+                if (nextBoundary >= currentSpan.Length)
                 {
-                    chunk = Math.Min(OutputChunkSize, audioRemaining);
+                    break;
                 }
 
-                await context.Response.Body.WriteAsync(audioData.Slice(audioOffset, chunk), cancellationToken);
-                audioOffset += chunk;
-                audioRemaining -= chunk;
-                bytesUntilNextMetadata -= chunk;
+                int skip = Math.Max(nextBoundary, 1);
+                audioOffset += skip;
+                audioRemaining -= skip;
                 continue;
             }
 
