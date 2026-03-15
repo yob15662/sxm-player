@@ -38,7 +38,7 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_CanBeCreated()
     {
         // Arrange & Act
-        var item = new HlsSegmentProducer.SegmentWorkItem(
+        var item = new SegmentWorkItem(
             "segment1.aac",
             "v1",
             123,
@@ -56,7 +56,7 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_WithNullAudioData_IsValid()
     {
         // Arrange & Act
-        var item = new HlsSegmentProducer.SegmentWorkItem(
+        var item = new SegmentWorkItem(
             "segment1.aac",
             "v1",
             123,
@@ -74,7 +74,7 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_WithVariousNames_IsValid(string segmentName)
     {
         // Act
-        var item = new HlsSegmentProducer.SegmentWorkItem(
+        var item = new SegmentWorkItem(
             segmentName,
             "v1",
             0,
@@ -88,9 +88,9 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_WithVariousSequenceNumbers_IsValid()
     {
         // Arrange & Act
-        var item1 = new HlsSegmentProducer.SegmentWorkItem("seg1.aac", "v1", 0, null);
-        var item2 = new HlsSegmentProducer.SegmentWorkItem("seg2.aac", "v1", long.MaxValue, null);
-        var item3 = new HlsSegmentProducer.SegmentWorkItem("seg3.aac", "v1", -1, null);
+        var item1 = new SegmentWorkItem("seg1.aac", "v1", 0, null);
+        var item2 = new SegmentWorkItem("seg2.aac", "v1", long.MaxValue, null);
+        var item3 = new SegmentWorkItem("seg3.aac", "v1", -1, null);
 
         // Assert
         Assert.Equal(0, item1.MediaSequence);
@@ -105,7 +105,7 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_WithVariousVersions_IsValid(string version)
     {
         // Act
-        var item = new HlsSegmentProducer.SegmentWorkItem(
+        var item = new SegmentWorkItem(
             "segment.aac",
             version,
             0,
@@ -122,7 +122,7 @@ public class HlsSegmentProducerTests
         var audioData = new byte[] { 1, 2, 3, 4, 5 };
 
         // Act
-        var item = new HlsSegmentProducer.SegmentWorkItem(
+        var item = new SegmentWorkItem(
             "segment.aac",
             "v1",
             0,
@@ -136,8 +136,8 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_Equality_WithSameName_IsEqual()
     {
         // Arrange
-        var item1 = new HlsSegmentProducer.SegmentWorkItem("seg.aac", "v1", 0, null);
-        var item2 = new HlsSegmentProducer.SegmentWorkItem("seg.aac", "v1", 0, null);
+        var item1 = new SegmentWorkItem("seg.aac", "v1", 0, null);
+        var item2 = new SegmentWorkItem("seg.aac", "v1", 0, null);
 
         // Act & Assert
         Assert.Equal(item1, item2);
@@ -147,8 +147,8 @@ public class HlsSegmentProducerTests
     public void SegmentWorkItem_Equality_WithDifferentData_NotEqual()
     {
         // Arrange
-        var item1 = new HlsSegmentProducer.SegmentWorkItem("seg.aac", "v1", 0, null);
-        var item2 = new HlsSegmentProducer.SegmentWorkItem("seg.aac", "v1", 1, null);
+        var item1 = new SegmentWorkItem("seg.aac", "v1", 0, null);
+        var item2 = new SegmentWorkItem("seg.aac", "v1", 1, null);
 
         // Act & Assert
         Assert.NotEqual(item1, item2);

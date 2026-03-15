@@ -884,11 +884,13 @@ public class SiriusXMPlayer : IDisposable
             // Force to resend metadata on next segment
             icecastStreamer.ClearMetadataState();
             // Producer-consumer setup
-            var segmentQueue = System.Threading.Channels.Channel.CreateBounded<IcecastStreamer.SegmentWorkItem>(new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait });
+            var segmentQueue = System.Threading.Channels.Channel.CreateUnbounded<global::SXMPlayer.SegmentWorkItem>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false
+            });
 
-            Func<string> channelIdProvider = () => (channelId == CURRENT_ID ? _currentChannel?.Entity.Id : realChannelId) ?? throw new InvalidOperationException("no channel available");
-
-            var producerTask = icecastStreamer.StartPlaylistProducer(segmentQueue.Writer, GetCurrentChannel, listener, playlistRefreshSource.Token, ct);
+            icecastStreamer.StartHLSReader(segmentQueue.Writer, GetCurrentChannel, listener, playlistRefreshSource.Token, ct);
 
             int bytesUntilMeta = metaInt;
             try
@@ -914,10 +916,6 @@ public class SiriusXMPlayer : IDisposable
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error in Icecast streaming consumer.");
-            }
-            finally
-            {
-                await producerTask; // Ensure producer stops
             }
             if (playlistRefreshSource.IsCancellationRequested)
             {

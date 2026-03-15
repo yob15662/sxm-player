@@ -15,7 +15,6 @@ public class IcecastStreamer
 {
     private readonly ILogger<SiriusXMPlayer> _logger;
     private readonly MetadataService _metadataService;
-    private readonly SiriusXMPlayer _player;
     private readonly HlsSegmentProducer _segmentProducer;
     private readonly IcyMetadataBuilder _metadataBuilder;
     private readonly IcyStreamWriter _streamWriter;
@@ -43,59 +42,27 @@ public class IcecastStreamer
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metadataService = metadataService ?? throw new ArgumentNullException(nameof(metadataService));
-        _player = player ?? throw new ArgumentNullException(nameof(player));
         _metadataBuilder = new IcyMetadataBuilder();
-        _segmentProducer = new HlsSegmentProducer(player, logger);
+        _segmentProducer = new HlsSegmentProducer(player ?? throw new ArgumentNullException(nameof(player)), logger);
         _streamWriter = new IcyStreamWriter(_metadataBuilder, logger, _metadataService);
     }
-
-    // Re-export SegmentWorkItem for backwards compatibility
-    public record SegmentWorkItem(string SegmentName, string Version, long MediaSequence, System.Memory<byte>? AudioData);
 
     /// <summary>
     /// Starts producing segments from a playlist for the given channel.
     /// </summary>
-    public Task StartPlaylistProducer(
+    public void StartHLSReader(
         ChannelWriter<SegmentWorkItem> writer,
-        Func<Task<ChannelItemData>> channelIdProvider,
+        Func<Task<ChannelItemData?>> channelIdProvider,
         SXMListener listener,
         CancellationToken playlistRefreshCt,
         CancellationToken clientDisconnectCt)
     {
-        // Create adapter to convert HlsSegmentProducer.SegmentWorkItem to IcecastStreamer.SegmentWorkItem
-        var adapterTask = Task.Run(async () =>
+        var wasAlreadyActive = _segmentProducer.StartProducer(writer, channelIdProvider, listener, playlistRefreshCt, clientDisconnectCt);
+
+        if (wasAlreadyActive)
         {
-            var hlsWriter = System.Threading.Channels.Channel.CreateUnbounded<HlsSegmentProducer.SegmentWorkItem>();
-            
-            // Adapter loop: read from HLS producer, write to public interface
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await foreach (var item in hlsWriter.Reader.ReadAllAsync())
-                    {
-                        var adapted = new SegmentWorkItem(item.SegmentName, item.Version, item.MediaSequence, item.AudioData);
-                        await writer.WriteAsync(adapted);
-                    }
-                }
-                finally
-                {
-                    writer.Complete();
-                }
-            });
-
-            // Run producer with adapter
-            var (producerTask, wasAlreadyActive) = _segmentProducer.StartProducer(hlsWriter.Writer, channelIdProvider, listener, playlistRefreshCt, clientDisconnectCt);
-            
-            if (wasAlreadyActive)
-            {
-                _logger.LogWarning($"HLS segment producer was already active for client {listener.IPAddress}. Replaced previous producer.");
-            }
-            
-            await producerTask;
-        });
-
-        return adapterTask;
+            _logger.LogInformation($"Attached client {listener.IPAddress} to the active HLS segment producer.");
+        }
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -20,189 +19,48 @@ public class HlsSegmentProducer
 {
     private readonly SiriusXMPlayer _player;
     private readonly ILogger _logger;
-    private readonly ConcurrentDictionary<SXMListener, CancellationTokenSource> _activeProducers = new();
-
-    public record SegmentWorkItem(string SegmentName, string Version, long MediaSequence, Memory<byte>? AudioData);
+    private readonly object _producerLock = new();
+    private readonly SegmentFanoutHub _fanout;
+    private CancellationTokenSource? _producerStopCts;
+    private Task? _producerTask;
 
     public HlsSegmentProducer(SiriusXMPlayer player, ILogger logger)
     {
         _player = player ?? throw new ArgumentNullException(nameof(player));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _fanout = new SegmentFanoutHub(StopProducerIfIdle);
     }
 
     /// <summary>
-    /// Starts producing segments for a channel, writing them to the provided channel writer.
-    /// Handles playlist fetching, decryption, and segment queuing.
-    /// If a producer already exists for this client, the previous one is cancelled and replaced.
+    /// Registers a client writer with the shared HLS producer.
+    /// Starts the shared producer when it is not already active.
     /// </summary>
-    /// <returns>Task that completes when the producer stops. Returns true if a producer already existed for this client.</returns>
-    public (Task ProducerTask, bool WasAlreadyActive) StartProducer(
+    /// <returns>True when the shared producer was already active.</returns>
+    public bool StartProducer(
         ChannelWriter<SegmentWorkItem> writer,
-        Func<Task<ChannelItemData>> channelProvider,
+        Func<Task<ChannelItemData?>> channelProvider,
         SXMListener listener,
         CancellationToken playlistRefreshToken,
         CancellationToken clientDisconnectToken)
     {
         _logger.LogInformation("Starting HLS segment producer.");
 
-        // Check if a producer already exists for this client
-        bool wasAlreadyActive = _activeProducers.TryGetValue(listener, out var existingCts);
-        
-        if (wasAlreadyActive)
+        _fanout.Register(listener, writer, clientDisconnectToken);
+
+        lock (_producerLock)
         {
-            _logger.LogInformation($"Producer already active for client {listener.IPAddress}. Cancelling previous producer.");
-            if (existingCts != null)
+            var wasAlreadyActive = _producerTask is { IsCompleted: false };
+
+            if (!wasAlreadyActive)
             {
-                existingCts.Cancel();
-                existingCts.Dispose();
+                _producerStopCts?.Dispose();
+                _producerStopCts = new CancellationTokenSource();
+                var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(playlistRefreshToken, _producerStopCts.Token);
+                _producerTask = RunProducerAsync(channelProvider, combinedCts);
             }
+
+            return wasAlreadyActive;
         }
-
-        // Create a new cancellation token source for this producer
-        var producerCts = new CancellationTokenSource();
-        _activeProducers[listener] = producerCts;
-
-        // Combine all cancellation tokens
-        var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(playlistRefreshToken, clientDisconnectToken, producerCts.Token);
-
-        var producerTask = Task.Run(async () =>
-        {
-            var combinedCt = combinedCts.Token;
-            long lastMediaSequence = -1;
-            var processedSegments = new HashSet<string>();
-            const int maxProcessedSegments = 50;
-            string? lastChannelId = null;
-            bool useCache = true;
-
-            try
-            {
-                while (!combinedCt.IsCancellationRequested)
-                {
-                    try
-                    {
-                        string channelId = (await channelProvider() ?? throw new InvalidOperationException("No current channel")).Entity!.Id!;
-
-                        if (lastChannelId != channelId)
-                        {
-                            if (lastChannelId is not null)
-                            {
-                                _logger.LogInformation($"Segment producer switching from channel '{lastChannelId}' to '{channelId}'.");
-                            }
-                            lastChannelId = channelId;
-                            lastMediaSequence = -1;
-                            processedSegments.Clear();
-                        }
-
-                        var playlist = await _player.GetStreamPlaylist(channelId, listener, alias: channelId, useCache: useCache);
-                        useCache = false;
-                        if (string.IsNullOrEmpty(playlist))
-                        {
-                            await Task.Delay(500, combinedCt);
-                            continue;
-                        }
-
-                        var lines = playlist.Split('\n');
-                        byte[]? currentKey = null;
-                        byte[]? currentIV = null;
-                        long currentMediaSequence = -1;
-                        double targetDuration = 2.0;
-
-                        // Parse playlist metadata
-                        foreach (var line in lines)
-                        {
-                            var l = line.Trim();
-                            if (l.StartsWith("#EXT-X-MEDIA-SEQUENCE:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                long.TryParse(l["#EXT-X-MEDIA-SEQUENCE:".Length..], out currentMediaSequence);
-                            }
-                            else if (l.StartsWith("#EXT-X-TARGETDURATION:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                double.TryParse(l["#EXT-X-TARGETDURATION:".Length..], out targetDuration);
-                            }
-                        }
-
-                        if (lastMediaSequence == -1 && currentMediaSequence > 0)
-                        {
-                            lastMediaSequence = currentMediaSequence + lines.Count(s => s.Trim().EndsWith(".aac")) - 2;
-                        }
-
-                        long segmentSequence = currentMediaSequence;
-                        var segmentsSent = 0;
-
-                        // Process segments
-                        foreach (var line in lines)
-                        {
-                            var l = line.Trim();
-                            if (l.StartsWith("#EXT-X-KEY:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                ParseEncryptionKey(l, out currentKey, out currentIV);
-                            }
-                            else if (l.EndsWith(".aac", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (segmentSequence > lastMediaSequence)
-                                {
-                                    var segmentName = l.Split('/').Last();
-                                    if (processedSegments.Add(segmentName))
-                                    {
-                                        var parts = l.Split('/');
-                                        var version = parts[^2];
-
-                                        byte[]? audioData = await FetchAndDecryptSegment(
-                                            channelId, channelProvider, version, segmentName,
-                                            listener, currentKey, currentIV, segmentSequence);
-
-                                        if (audioData is not null)
-                                        {
-                                            var item = new SegmentWorkItem(segmentName, version, segmentSequence, new Memory<byte>(audioData));
-                                            await writer.WriteAsync(item, combinedCt);
-                                            if (listener is not null)
-                                            {
-                                                listener.LastActivity = DateTimeOffset.Now;
-                                            }
-                                            segmentsSent++;
-                                            lastMediaSequence = segmentSequence;
-                                        }
-
-                                        if (processedSegments.Count > maxProcessedSegments)
-                                        {
-                                            processedSegments.Remove(processedSegments.First());
-                                        }
-                                    }
-                                }
-                                segmentSequence++;
-                            }
-                        }
-
-                        // Wait before fetching next playlist
-                        if (segmentsSent > 0)
-                        {
-                            await Task.Delay(TimeSpan.FromSeconds(targetDuration > 0 ? targetDuration - 1 : 1.0), combinedCt);
-                        }
-                        else
-                        {
-                            await Task.Delay(500, combinedCt);
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error in HLS segment producer.");
-                        await Task.Delay(2000, combinedCt);
-                    }
-                }
-            }
-            finally
-            {
-                _activeProducers.TryRemove(listener, out _);
-                _logger.LogInformation($"HLS segment producer for client {listener.IPAddress} has stopped.");
-                combinedCts.Dispose();
-            }
-        }, clientDisconnectToken).ContinueWith(t => writer.Complete(t.Exception?.GetBaseException()), TaskContinuationOptions.None);
-
-        return (producerTask, wasAlreadyActive);
     }
 
     /// <summary>
@@ -212,12 +70,162 @@ public class HlsSegmentProducer
     {
         foreach (var client in inactiveClients)
         {
-            if (_activeProducers.TryRemove(client, out var cts))
+            _logger.LogInformation($"Removing inactive client {client.IPAddress} from HLS producer fanout.");
+            _fanout.Unregister(client);
+        }
+    }
+
+    private async Task RunProducerAsync(
+        Func<Task<ChannelItemData?>> channelProvider,
+        CancellationTokenSource combinedCts)
+    {
+        var combinedCt = combinedCts.Token;
+        long lastMediaSequence = -1;
+        var processedSegments = new HashSet<string>();
+        const int maxProcessedSegments = 50;
+        string? lastChannelId = null;
+        bool useCache = true;
+        Exception? completionError = null;
+
+        try
+        {
+            while (!combinedCt.IsCancellationRequested)
             {
-                _logger.LogInformation($"Cancelling producer for inactive client {client.IPAddress}");
-                cts.Cancel();
-                cts.Dispose();
+                try
+                {
+                    string channelId = (await channelProvider() ?? throw new InvalidOperationException("No current channel")).Entity!.Id!;
+
+                    if (lastChannelId != channelId)
+                    {
+                        if (lastChannelId is not null)
+                        {
+                            _logger.LogInformation($"Segment producer switching from channel '{lastChannelId}' to '{channelId}'.");
+                        }
+                        lastChannelId = channelId;
+                        lastMediaSequence = -1;
+                        processedSegments.Clear();
+                    }
+
+                    var playlist = await _player.GetStreamPlaylist(channelId, null, alias: channelId, useCache: useCache);
+                    useCache = false;
+                    if (string.IsNullOrEmpty(playlist))
+                    {
+                        await Task.Delay(500, combinedCt);
+                        continue;
+                    }
+
+                    var lines = playlist.Split('\n');
+                    byte[]? currentKey = null;
+                    byte[]? currentIV = null;
+                    long currentMediaSequence = -1;
+                    double targetDuration = 2.0;
+
+                    foreach (var line in lines)
+                    {
+                        var l = line.Trim();
+                        if (l.StartsWith("#EXT-X-MEDIA-SEQUENCE:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            long.TryParse(l["#EXT-X-MEDIA-SEQUENCE:".Length..], out currentMediaSequence);
+                        }
+                        else if (l.StartsWith("#EXT-X-TARGETDURATION:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            double.TryParse(l["#EXT-X-TARGETDURATION:".Length..], out targetDuration);
+                        }
+                    }
+
+                    if (lastMediaSequence == -1 && currentMediaSequence > 0)
+                    {
+                        lastMediaSequence = currentMediaSequence + lines.Count(s => s.Trim().EndsWith(".aac")) - 2;
+                    }
+
+                    long segmentSequence = currentMediaSequence;
+                    var segmentsSent = 0;
+
+                    foreach (var line in lines)
+                    {
+                        var l = line.Trim();
+                        if (l.StartsWith("#EXT-X-KEY:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ParseEncryptionKey(l, out currentKey, out currentIV);
+                        }
+                        else if (l.EndsWith(".aac", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (segmentSequence > lastMediaSequence)
+                            {
+                                var segmentName = l.Split('/').Last();
+                                if (processedSegments.Add(segmentName))
+                                {
+                                    var parts = l.Split('/');
+                                    var version = parts[^2];
+
+                                    byte[]? audioData = await FetchAndDecryptSegment(
+                                        channelId, channelProvider, version, segmentName,
+                                        currentKey, currentIV, segmentSequence);
+
+                                    if (audioData is not null)
+                                    {
+                                        var item = new SegmentWorkItem(segmentName, version, segmentSequence, new Memory<byte>(audioData));
+                                        await _fanout.BroadcastAsync(item, combinedCt);
+                                        segmentsSent++;
+                                        lastMediaSequence = segmentSequence;
+                                    }
+
+                                    if (processedSegments.Count > maxProcessedSegments)
+                                    {
+                                        processedSegments.Remove(processedSegments.First());
+                                    }
+                                }
+                            }
+                            segmentSequence++;
+                        }
+                    }
+
+                    if (segmentsSent > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(targetDuration > 0 ? targetDuration - 1 : 1.0), combinedCt);
+                    }
+                    else
+                    {
+                        await Task.Delay(500, combinedCt);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    completionError = ex;
+                    _logger.LogError(ex, "Error in HLS segment producer.");
+                    await Task.Delay(2000, combinedCt);
+                }
             }
+        }
+        finally
+        {
+            lock (_producerLock)
+            {
+                _producerStopCts?.Dispose();
+                _producerStopCts = null;
+                _producerTask = null;
+            }
+
+            _fanout.CompleteAll(completionError);
+            _logger.LogInformation("Shared HLS segment producer has stopped.");
+            combinedCts.Dispose();
+        }
+    }
+
+    private void StopProducerIfIdle()
+    {
+        lock (_producerLock)
+        {
+            if (_fanout.HasSubscribers)
+            {
+                return;
+            }
+
+            _producerStopCts?.Cancel();
         }
     }
 
@@ -226,7 +234,6 @@ public class HlsSegmentProducer
         Func<Task<ChannelItemData>> channelProvider,
         string version,
         string segmentName,
-        SXMListener? listener,
         byte[]? currentKey,
         byte[]? currentIV,
         long segmentSequence)
@@ -234,7 +241,7 @@ public class HlsSegmentProducer
         try
         {
             var currentChannelData = await channelProvider();
-            using var segStream = await _player.GetSegment(currentChannelData.Entity!.Id!, version, segmentName, listener);
+            using var segStream = await _player.GetSegment(currentChannelData.Entity!.Id!, version, segmentName, null);
 
             if (currentKey is not null)
             {
