@@ -5,10 +5,19 @@ using SXMPlayer;
 using SXMPlayer.Proxy.Components;
 using SXMPlayer.Proxy.Services;
 using System;
+using System.Diagnostics;
 using System.Reflection;
 
 //dotnet run --urls="https://localhost:7777"
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.SingleLine = true;
+    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff zzz ";
+});
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 
 // Read password from file specified by environment variable and override configuration
 var passwordFile = Environment.GetEnvironmentVariable("SXM_PASSWORD_FILE");
@@ -65,6 +74,35 @@ var logger = app.Services.GetRequiredService<ILogger<SiriusXMPlayer>>();
 var assembly = Assembly.GetExecutingAssembly().GetName();
 logger.LogInformation("Starting {AssemblyName} v{AssemblyVersion}", assembly.Name, assembly.Version?.ToString() ?? "unknown");
 var sxm = app.Services.GetRequiredService<SiriusXMPlayer>();
+
+app.Use(async (ctx, next) =>
+{
+    var start = Stopwatch.GetTimestamp();
+    try
+    {
+        await next();
+    }
+    finally
+    {
+        var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        var requestLength = ctx.Request.ContentLength?.ToString() ?? "-";
+        var responseLength = ctx.Response.ContentLength?.ToString() ?? "-";
+        var userAgent = ctx.Request.Headers.UserAgent.ToString();
+        logger.LogInformation(
+            "HTTP {Method} {Path}{Query} => {StatusCode} in {ElapsedMs:F2} ms | ip={RemoteIp} proto={Protocol} reqBytes={RequestLength} resBytes={ResponseLength} ua=\"{UserAgent}\"",
+            ctx.Request.Method,
+            ctx.Request.Path,
+            ctx.Request.QueryString,
+            ctx.Response.StatusCode,
+            elapsedMs,
+            ctx.Connection.RemoteIpAddress,
+            ctx.Request.Protocol,
+            requestLength,
+            responseLength,
+            userAgent);
+    }
+});
+
 // Configure the HTTP request pipeline.
 var configuration = builder.Configuration;
 
