@@ -40,22 +40,21 @@ public class HlsSegmentProducer
         ChannelWriter<SegmentWorkItem> writer,
         Func<Task<ChannelItemData?>> channelProvider,
         SXMListener listener,
-        CancellationToken playlistRefreshToken,
+        CancellationToken channelChangedCt,
         CancellationToken clientDisconnectToken)
     {
-        _logger.LogInformation("Starting HLS segment producer.");
-
-        _fanout.Register(listener, writer, clientDisconnectToken);
-
         lock (_producerLock)
         {
             var wasAlreadyActive = _producerTask is { IsCompleted: false };
 
+            _fanout.Register(listener, writer, clientDisconnectToken);
+
             if (!wasAlreadyActive)
             {
+                _logger.LogInformation("Starting HLS segment producer.");
                 _producerStopCts?.Dispose();
                 _producerStopCts = new CancellationTokenSource();
-                var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(playlistRefreshToken, _producerStopCts.Token);
+                var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(channelChangedCt, _producerStopCts.Token);
                 _producerTask = RunProducerAsync(channelProvider, combinedCts);
             }
 
@@ -203,6 +202,8 @@ public class HlsSegmentProducer
         }
         finally
         {
+            _fanout.CompleteAll(completionError);
+
             lock (_producerLock)
             {
                 _producerStopCts?.Dispose();
@@ -210,7 +211,6 @@ public class HlsSegmentProducer
                 _producerTask = null;
             }
 
-            _fanout.CompleteAll(completionError);
             _logger.LogInformation("Shared HLS segment producer has stopped.");
             combinedCts.Dispose();
         }

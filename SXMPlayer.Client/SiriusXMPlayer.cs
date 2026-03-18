@@ -79,7 +79,7 @@ public class SiriusXMPlayer : IDisposable
     // Metadata fields removed - now in MetadataService
 
     private CancellationTokenSource tokenSource = new CancellationTokenSource();
-    private CancellationTokenSource playlistRefreshSource = new CancellationTokenSource();
+    private CancellationTokenSource channelChangedSource = new CancellationTokenSource();
     private CacheManager cacheManager = null!;
 
 
@@ -396,8 +396,8 @@ public class SiriusXMPlayer : IDisposable
         {
             logger.LogInformation($"Setting current channel to {channelId}");
             _channelHasChanged = true;
-            playlistRefreshSource.Cancel();
-            playlistRefreshSource = new CancellationTokenSource();
+            channelChangedSource.Cancel();
+            channelChangedSource = new CancellationTokenSource();
             // Cuts will refresh on next metadata request
         }
         var allChannels = await GetChannelsAsync();
@@ -890,7 +890,7 @@ public class SiriusXMPlayer : IDisposable
                 SingleWriter = false
             });
 
-            icecastStreamer.StartHLSReader(segmentQueue.Writer, GetCurrentChannel, listener, playlistRefreshSource.Token, ct);
+            icecastStreamer.StartHLSReader(segmentQueue.Writer, GetCurrentChannel, listener, channelChangedSource.Token, ct);
 
             int bytesUntilMeta = metaInt;
             try
@@ -909,18 +909,18 @@ public class SiriusXMPlayer : IDisposable
                     }
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException oex)
             {
-                // Expected when client disconnects or playlist refreshes
+                // Expected when client disconnects
+                logger.LogWarning(oex, "Client disconnected");
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error in Icecast streaming consumer.");
             }
-            if (playlistRefreshSource.IsCancellationRequested)
+            if (channelChangedSource.IsCancellationRequested)
             {
                 logger.LogInformation("Playlist refresh requested, restarting producer.");
-                continue;
             }
         }
     }

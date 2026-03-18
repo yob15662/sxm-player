@@ -54,10 +54,10 @@ public class IcecastStreamer
         ChannelWriter<SegmentWorkItem> writer,
         Func<Task<ChannelItemData?>> channelIdProvider,
         SXMListener listener,
-        CancellationToken playlistRefreshCt,
+        CancellationToken channelChangedCt,
         CancellationToken clientDisconnectCt)
     {
-        var wasAlreadyActive = _segmentProducer.StartProducer(writer, channelIdProvider, listener, playlistRefreshCt, clientDisconnectCt);
+        var wasAlreadyActive = _segmentProducer.StartProducer(writer, channelIdProvider, listener, channelChangedCt, clientDisconnectCt);
 
         if (wasAlreadyActive)
         {
