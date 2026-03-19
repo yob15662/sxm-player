@@ -75,6 +75,14 @@ var assembly = Assembly.GetExecutingAssembly().GetName();
 logger.LogInformation("Starting {AssemblyName} v{AssemblyVersion}", assembly.Name, assembly.Version?.ToString() ?? "unknown");
 var sxm = app.Services.GetRequiredService<SiriusXMPlayer>();
 
+var streamRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var metadataRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+sxm.RegisterNowPlayingListener(_ =>
+{
+    metadataRead.TrySetResult();
+});
+
 app.Use(async (ctx, next) =>
 {
     var start = Stopwatch.GetTimestamp();
@@ -106,7 +114,16 @@ app.Use(async (ctx, next) =>
 // Configure the HTTP request pipeline.
 var configuration = builder.Configuration;
 
-app.MapGet("/nowplaying", () => sxm.GetNowPlaying() is null ? Results.NoContent() : TypedResults.Ok(sxm.GetNowPlaying()));
+app.MapGet("/nowplaying", () =>
+{
+    if (!streamRequestReceived.Task.IsCompleted)
+    {
+        return Results.NoContent();
+    }
+
+    var nowPlaying = sxm.GetNowPlaying();
+    return nowPlaying is null ? Results.NoContent() : TypedResults.Ok(nowPlaying);
+});
 
 app.MapGet("/playlists/{id}.{ext?}", async (HttpContext ctx, string id, string? ext) =>
 {
@@ -171,6 +188,7 @@ app.MapGet("stream/{channel:regex(.*)}/{version:regex(.*)}/{segmentId:regex(.*\\
         logger.LogTrace($"Received request for {ctx.Request.Path}");
         try
         {
+            streamRequestReceived.TrySetResult();
             ctx.Response.ContentType = "audio/x-aac";
             ctx.Response.Headers.Append("Cache-Control", "no-cache");
             var client = sxm.TrackListenerIP(ipAddress);
@@ -198,9 +216,35 @@ app.MapGet("/key/{guid:regex(.*)}",
 
     });
 
-// cover image
-app.MapGet("/icecast/cover.jpg", async (HttpContext ctx, CancellationToken ct) =>
+static bool IsCoverAssetRequest(string id)
 {
+    return id.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+        || id.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+        || id.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+        || id.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase);
+}
+
+async Task ServeCoverImageAsync(HttpContext ctx, CancellationToken ct)
+{
+    try
+    {
+        if (!streamRequestReceived.Task.IsCompleted)
+        {
+            logger.LogDebug("Pausing cover request {Path} until a stream request is received.", ctx.Request.Path);
+            await streamRequestReceived.Task.WaitAsync(ct);
+        }
+
+        if (!metadataRead.Task.IsCompleted)
+        {
+            logger.LogDebug("Pausing cover request {Path} until metadata is read.", ctx.Request.Path);
+            await metadataRead.Task.WaitAsync(ct);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        return;
+    }
+
     var channelImage = await sxm.GetCurrentChannelImage();
     if (channelImage is null)
     {
@@ -237,15 +281,19 @@ app.MapGet("/icecast/cover.jpg", async (HttpContext ctx, CancellationToken ct) =
             ctx.Response.StatusCode = 502;
         }
     }
-});
+}
+
+// cover image
+app.MapGet("/cover.jpg", ServeCoverImageAsync);
+app.MapGet("/icecast/cover.jpg", ServeCoverImageAsync);
 
 // Icecast-like continuous AAC stream with optional ICY metadata (progressive)
 app.MapGet("/icecast/{id}", async (HttpContext ctx, string id, CancellationToken ct) =>
 {
     try
     {
-        //cover.xxx requests are blocked
-        if (id.EndsWith(".png") || id.EndsWith(".webp"))
+        // cover.xxx requests are blocked
+        if (IsCoverAssetRequest(id))
         {
             ctx.Response.StatusCode = 404;
             return;
@@ -253,6 +301,7 @@ app.MapGet("/icecast/{id}", async (HttpContext ctx, string id, CancellationToken
         logger.LogInformation($"Received icecast request for channel '{id}' - {ctx.Request.Path} - {ctx.Connection.RemoteIpAddress}");
 
         var channelId = id == "current" ? SiriusXMPlayer.CURRENT_ID : id;
+        streamRequestReceived.TrySetResult();
 
         await sxm.StreamIcecastAsync(channelId, ctx, ct);
     }
@@ -274,7 +323,7 @@ app.MapGet("/icecast/{id}", async (HttpContext ctx, string id, CancellationToken
 app.MapMethods("/icecast/{id}", new[] { "HEAD" }, (HttpContext ctx, string id) =>
 {
     //cover.xxx requests are blocked
-    if (id.EndsWith(".png") || id.EndsWith(".webp"))
+    if (IsCoverAssetRequest(id))
     {
         return Results.NotFound();
     }
