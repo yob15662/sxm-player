@@ -883,7 +883,7 @@ public class SiriusXMPlayer : IDisposable
         {
             // Force to resend metadata on next segment
             icecastStreamer.ClearMetadataState();
-            // Producer-consumer setup
+
             var segmentQueue = System.Threading.Channels.Channel.CreateUnbounded<global::SXMPlayer.SegmentWorkItem>(new UnboundedChannelOptions
             {
                 SingleReader = true,
@@ -893,19 +893,26 @@ public class SiriusXMPlayer : IDisposable
             icecastStreamer.StartHLSReader(segmentQueue.Writer, GetCurrentChannel, listener, channelChangedSource.Token, ct);
 
             int bytesUntilMeta = metaInt;
+            var receivedAnyData = false;
+
             try
             {
-                await foreach (var item in segmentQueue.Reader.ReadAllAsync(ct))
+                while (await segmentQueue.Reader.WaitToReadAsync(ct))
                 {
-                    // Data is already decrypted by the producer
-                    if (item.AudioData is not null)
+                    while (segmentQueue.Reader.TryRead(out var item))
                     {
-                        bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(item.AudioData.Value, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
-                        listener.LastActivity = DateTimeOffset.Now;
-                    }
-                    else
-                    {
-                        logger.LogWarning($"Received segment {item.SegmentName} with no data");
+                        receivedAnyData = true;
+
+                        // Data is already decrypted by the producer
+                        if (item.AudioData is not null)
+                        {
+                            bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(item.AudioData.Value, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
+                            listener.LastActivity = DateTimeOffset.Now;
+                        }
+                        else
+                        {
+                            logger.LogWarning($"Received segment {item.SegmentName} with no data");
+                        }
                     }
                 }
             }
@@ -918,9 +925,22 @@ public class SiriusXMPlayer : IDisposable
             {
                 logger.LogError(ex, "Error in Icecast streaming consumer.");
             }
+
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+
             if (channelChangedSource.IsCancellationRequested)
             {
                 logger.LogInformation("Playlist refresh requested, restarting producer.");
+                continue;
+            }
+
+            if (!receivedAnyData)
+            {
+                logger.LogDebug("No HLS segments were produced for this iteration; backing off before restart.");
+                await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
             }
         }
     }
