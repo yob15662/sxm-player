@@ -23,16 +23,24 @@ public sealed class SxmSessionService : IDisposable
 
     public async Task LoginIfNecessary(string reason)
     {
-        if (inactivityStart.HasValue && DateTimeOffset.Now - inactivityStart > TimeSpan.FromHours(2))
+        var inactivityAge = inactivityStart.HasValue ? DateTimeOffset.Now - inactivityStart.Value : (TimeSpan?)null;
+        logger.LogDebug("LoginIfNecessary called - reason={Reason} inactivityStart={InactivityStart} inactivityAgeSeconds={InactivityAgeSeconds}",
+            reason,
+            inactivityStart,
+            inactivityAge?.TotalSeconds);
+
+        if (inactivityStart.HasValue && inactivityAge > TimeSpan.FromHours(2))
         {
             logger.LogInformation($"Re-logging in due to inactivity - source:{reason}");
             await session.ReLogin();
             InitializeActivityTimer();
             inactivityStart = null;
+            logger.LogDebug("Re-login completed after inactivity - reason={Reason}", reason);
             return;
         }
 
         var doLogin = await session.LoginIfNecessary();
+        logger.LogDebug("Session login check completed - reason={Reason} loginStateChanged={LoginStateChanged}", reason, doLogin);
         if (doLogin)
         {
             InitializeActivityTimer();
@@ -57,9 +65,11 @@ public sealed class SxmSessionService : IDisposable
     {
         if (statusTimer is not null)
         {
+            logger.LogDebug("Status checks already running; skipping StartStatusChecks call.");
             return;
         }
 
+        logger.LogDebug("Starting status checks loop with 50s interval.");
         statusTimer = Task.Factory.StartNew(
             async () =>
             {
@@ -67,6 +77,7 @@ public sealed class SxmSessionService : IDisposable
                 while (!tokenSource.IsCancellationRequested)
                 {
                     await timer.WaitForNextTickAsync(tokenSource.Token);
+                    logger.LogDebug("Running status check request.");
                     var statusResponse = await session.apiClient.StatusAsync();
                     logger.LogDebug($"Status response - state={statusResponse.State}");
                     if (statusResponse?.State?.ToLower() != "active")

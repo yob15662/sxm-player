@@ -9,6 +9,7 @@ using System.Threading.Channels;
 using System.Text;
 using Polly;
 using Polly.Retry;
+using System.Diagnostics;
 
 namespace SXMPlayer;
 
@@ -310,9 +311,19 @@ public class SiriusXMPlayer : IDisposable
 
     public virtual async Task<string?> GetStreamPlaylist(string channelId, SXMListener? listener, string? alias = null, bool useCache = true, int retries = 0)
     {
+        var start = Stopwatch.GetTimestamp();
+        logger.LogDebug("GetStreamPlaylist start - channelId={ChannelId} alias={Alias} useCache={UseCache} listenerIp={ListenerIp} retries={Retries}",
+            channelId,
+            alias,
+            useCache,
+            listener?.IPAddress,
+            retries);
+
         await sxmSessionService.LoginIfNecessary(nameof(GetStreamPlaylist));
         sxmSessionService.StartStatusChecks();
         var currentChannel = await GetCurrentChannel();
+        logger.LogDebug("Current channel before playlist check - requested={RequestedChannelId} current={CurrentChannelId}", channelId, currentChannel?.Entity.Id);
+
         var isChannelChange = channelId != CURRENT_ID && channelId != currentChannel?.Entity.Id;
         if (isChannelChange)
         {
@@ -351,6 +362,11 @@ public class SiriusXMPlayer : IDisposable
                 metadataService.GetNowPlaying());
 
             avgSegmentDuration = playlistService.AverageSegmentDuration;
+            logger.LogDebug("GetStreamPlaylist completed - channelId={ChannelId} playlistLength={PlaylistLength} avgSegmentDuration={AvgSegmentDuration} elapsedMs={ElapsedMs:F2}",
+                channelId,
+                playlist?.Length,
+                avgSegmentDuration,
+                Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             return playlist;
         }
         catch (ApiException ex)

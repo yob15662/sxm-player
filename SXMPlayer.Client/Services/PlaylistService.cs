@@ -137,31 +137,51 @@ public class PlaylistService
         Func<string, DateTimeOffset?, Task<(string artist, string title, string? id)?>> getNowPlaying,
         NowPlayingData? nowPlayingFallback)
     {
+        var start = DateTimeOffset.UtcNow;
+        _logger.LogDebug("GetStreamPlaylistAsync start - channelId={ChannelId} currentId={CurrentId} alias={Alias} useCache={UseCache} listenerIp={ListenerIp} listenerIsPrimary={ListenerIsPrimary} hasCurrentChannel={HasCurrentChannel} hasCachedPlaylist={HasCachedPlaylist}",
+            channelId,
+            currentId,
+            alias,
+            useCache,
+            listener?.IPAddress,
+            listenerIsPrimary,
+            currentChannel is not null,
+            _cachedPlaylist is not null);
+
         if (channelId == currentId && !listenerIsPrimary)
         {
+            _logger.LogDebug("Current-channel alias requested by non-primary listener. Returning cached playlist when available.");
             if (_cachedPlaylist is null && currentChannel != null)
             {
+                _logger.LogDebug("Cached playlist missing; resolving alias to current channel id={CurrentChannelId}", currentChannel.Entity.Id);
                 return await GetStreamPlaylistAsync(currentChannel.Entity.Id, currentId, listener, channelId, useCache, currentChannel, listenerIsPrimary, setCurrentChannel, getProxyPlaylistUrl, getHttpResponse, getNowPlaying, nowPlayingFallback);
             }
 
             if (_cachedPlaylist is null && currentChannel is null)
             {
+                _logger.LogDebug("Cannot resolve current-channel playlist because cached playlist and current channel are both missing.");
                 throw new InvalidOperationException("Cannot get current playlist - no channel selected");
             }
 
+            _logger.LogDebug("Returning cached playlist for non-primary current-channel request.");
             return _cachedPlaylist;
         }
 
         if (channelId == currentId)
         {
             channelId = currentChannel?.Entity.Id ?? throw new InvalidOperationException("No current channel selected");
+            _logger.LogDebug("Resolved current channel alias to {ChannelId}", channelId);
         }
 
         if (!await _playlistSemaphore.WaitAsync(TimeSpan.FromSeconds(10)))
         {
             _logger.LogWarning("Timed out waiting for playlist semaphore. Another request might be taking too long.");
             await Task.Delay(TimeSpan.FromSeconds(5));
-            if (_cachedPlaylist is not null) return _cachedPlaylist;
+            if (_cachedPlaylist is not null)
+            {
+                _logger.LogDebug("Semaphore timeout fallback: returning cached playlist.");
+                return _cachedPlaylist;
+            }
             throw new TimeoutException("Could not acquire lock to refresh playlist.");
         }
 
@@ -169,6 +189,8 @@ public class PlaylistService
         {
             await setCurrentChannel(channelId);
             var url = await getProxyPlaylistUrl(channelId);
+            _logger.LogDebug("Fetching source playlist - channelId={ChannelId} url={Url}", channelId, url);
+
             var res = await getHttpResponse(url);
             var allLines = await res!.Content.ReadAsStringAsync();
             string[] lines = SplitLines(allLines);
@@ -239,6 +261,13 @@ public class PlaylistService
             newLines = newLines.Select(l => l.Replace("VOD", "EVENT")).ToList();
 
             _cachedPlaylist = string.Join('\n', newLines);
+            _logger.LogDebug("GetStreamPlaylistAsync completed - channelId={ChannelId} sourceLineCount={SourceLineCount} outputLineCount={OutputLineCount} segmentCount={SegmentCount} avgSegmentDuration={AvgSegmentDuration} elapsedMs={ElapsedMs:F2}",
+                channelId,
+                lines.Length,
+                newLines.Count,
+                segmentCount,
+                AverageSegmentDuration,
+                (DateTimeOffset.UtcNow - start).TotalMilliseconds);
             return _cachedPlaylist;
         }
         finally

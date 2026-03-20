@@ -107,6 +107,7 @@ public class APISession
     {
         try
         {
+            logger.LogDebug("LoginIfNecessaryInternal start - clearDevice={ClearDevice} retryCount={RetryCount}", clearDevice, retryCount);
             if (retryCount >= 5)
             {
                 logger.LogError($"Too many retries");
@@ -116,7 +117,7 @@ public class APISession
 
             if (AccessToken != null)
             {
-                logger.LogDebug($"Using existing access token");
+                logger.LogDebug("Using existing access token - expiresAt={AccessTokenExpiresAt}", AccessToken.AccessTokenExpiresAt);
                 return true;
             }
             apiClient = new Client(GetHttpClient());
@@ -126,9 +127,11 @@ public class APISession
             if (deviceInfo != null)
             {
                 logger.LogInformation($"Using existing device {deviceInfo.DeviceId}");
+                logger.LogDebug("Device cache hit for login.");
             }
             else
             {
+                logger.LogDebug("Device cache miss; creating new device registration.");
                 var devAttributes = new DeviceAttributes2
                 {
                     Browser = new Browser2
@@ -154,10 +157,12 @@ public class APISession
             if (Tokens != null)
             {
                 logger.LogInformation($"Using existing tokens - expiry is {Tokens.AnonExpiry}");
+                logger.LogDebug("Token cache hit - anonExpiry={AnonExpiry} hasIdentityGrant={HasIdentityGrant}", Tokens.AnonExpiry, !string.IsNullOrWhiteSpace(Tokens.IdentityGrant));
             }
             else
             {
                 logger.LogInformation($"Logging anonymous");
+                logger.LogDebug("Token cache miss; requesting anonymous token and identity grant.");
                 var anon = await apiClient.AnonymousAsync("");
                 SetAnonymousAccessToken(anon.AccessToken!, DateTimeOffset.Parse(anon.AccessTokenExpiresAt!));
                 var authData = new Body7 { Handle = username, Password = password };
@@ -165,10 +170,18 @@ public class APISession
                 var response = await apiClient.PasswordAsync(authData);
                 SetIdentityGrant(response.Grant!);
                 await Tools.WriteObject(Tokens, tokensFile, logger);
+                logger.LogDebug("Persisted new anonymous and identity grant tokens to disk.");
             }
             var accessToken = await Tools.ReadJsonFile<SXMAccessToken>(accessFile, logger);
             if (accessToken != null)
+            {
+                logger.LogDebug("Access token cache hit - expiresAt={AccessTokenExpiresAt}", accessToken.AccessTokenExpiresAt);
                 SetIdentityToken(accessToken);
+            }
+            else
+            {
+                logger.LogDebug("Access token cache miss; authenticated token request required.");
+            }
 
             CheckTokenExpiry();
 
@@ -183,8 +196,10 @@ public class APISession
                 logger.LogInformation($"Created access token");
                 SetIdentityToken(authenticatedData.AsSXMToken());
                 await Tools.WriteObject(AccessToken, accessFile, logger);
+                logger.LogDebug("Persisted access token to cache file.");
             }
             logger.LogInformation($"Logged in");
+            logger.LogDebug("LoginIfNecessaryInternal completed successfully.");
             return true;
         }
         catch (ApiException ex)
@@ -195,6 +210,7 @@ public class APISession
                 if (retryCount > 0)
                     clearDevice = true;
                 logger.LogError($"Login forbidden error - clearing cache - retryCount={retryCount} clearDevice={clearDevice}");
+                logger.LogDebug("Retrying login after 401 - nextRetry={NextRetry}", retryCount + 1);
                 await Task.Delay(TimeSpan.FromSeconds(10));
                 return await LoginIfNecessaryInternal(clearDevice, retryCount + 1);
             }
@@ -204,6 +220,7 @@ public class APISession
                 if (retryCount > 0)
                     clearDevice = true;
                 logger.LogError($"SXM Error - clearing cache - retryCount={retryCount} clearDevice={clearDevice} - pausing for 5 minutes");
+                logger.LogDebug("Retrying login after 500 - nextRetry={NextRetry}", retryCount + 1);
                 await Task.Delay(TimeSpan.FromMinutes(5));
                 return await LoginIfNecessaryInternal(clearDevice, retryCount + 1);
             }
