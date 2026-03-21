@@ -68,6 +68,7 @@ namespace SXMPlayer.Tests
                 apiSession,
                 sxmSessionService,
                 playlistService,
+                string.Empty, // currentChannelFile parameter
                 CancellationToken.None) { CallBase = false };
             metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
 
@@ -214,6 +215,7 @@ namespace SXMPlayer.Tests
                 apiSession,
                 sxmSessionService,
                 playlistService,
+                string.Empty, // currentChannelFile parameter
                 CancellationToken.None) { CallBase = false };
             metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
 
