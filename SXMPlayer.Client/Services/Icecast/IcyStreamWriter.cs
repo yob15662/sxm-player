@@ -98,7 +98,8 @@ public class IcyStreamWriter
             throw new ArgumentOutOfRangeException(nameof(metadataInterval), "Metadata interval must be greater than zero.");
         }
 
-        if (bytesUntilNextMetadata <= 0 || bytesUntilNextMetadata > metadataInterval)
+        // Keep 0 as-is so metadata is emitted immediately when the previous write ended exactly on a boundary.
+        if (bytesUntilNextMetadata < 0 || bytesUntilNextMetadata > metadataInterval)
         {
             bytesUntilNextMetadata = metadataInterval;
         }

@@ -191,4 +191,20 @@ public class IcyMetadataBuilderTests
         int metaLength = result[0];
         Assert.Equal(1 + metaLength * 16, result.Length);
     }
+
+    [Fact]
+    public void BuildMetadataBlock_WithVeryLongTitle_CapsAtIcyMaximum()
+    {
+        // Arrange
+        var builder = new IcyMetadataBuilder();
+        var longSong = new string('A', 7000);
+        var nowPlaying = new NowPlayingData("Channel", "Artist", longSong, "id");
+
+        // Act
+        byte[] result = builder.BuildMetadataBlock(nowPlaying);
+
+        // Assert
+        Assert.Equal(255, result[0]);
+        Assert.Equal(1 + (255 * 16), result.Length);
+    }
 }

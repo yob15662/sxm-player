@@ -643,4 +643,33 @@ public class IcyStreamWriterTests
         var recoveredAudio = StripIcyMetadata(responseBody.ToArray(), 64);
         Assert.Equal(expectedAudio, recoveredAudio.Take(expectedAudio.Length).ToArray());
     }
+
+    [Fact]
+    public async Task WriteAsync_WithZeroBudget_InjectsMetadataBeforeAudio()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var audioData = CreateValidAdtsFrame(128);
+
+        var mockContext = CreateMockHttpContext();
+        var responseBody = new MemoryStream();
+        mockContext.Setup(c => c.Response.Body).Returns(responseBody);
+
+        int remainingBudget = await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(audioData),
+            mockContext.Object,
+            injectMetadata: true,
+            metadataInterval: 512,
+            bytesUntilNextMetadata: 0,
+            CancellationToken.None);
+
+        var written = responseBody.ToArray();
+
+        Assert.Equal(audioData.Length + 1, written.Length);
+        Assert.Equal(0, written[0]);
+        Assert.Equal(audioData, written.AsSpan(1).ToArray());
+        Assert.Equal(512 - audioData.Length, remainingBudget);
+    }
 }

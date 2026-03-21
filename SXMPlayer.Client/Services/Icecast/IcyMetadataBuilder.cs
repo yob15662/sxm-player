@@ -8,6 +8,9 @@ namespace SXMPlayer;
 /// </summary>
 public class IcyMetadataBuilder
 {
+    private const int MaxMetadataBlocks = 255;
+    private const int MaxMetadataPayloadBytes = MaxMetadataBlocks * 16;
+
     private string? _lastStreamTitle;
     private DateTime _lastMetadataUpdate = DateTime.MinValue;
 
@@ -63,6 +66,11 @@ public class IcyMetadataBuilder
     private static byte[] FormatMetadataBlock(string metadataString)
     {
         var metadataBytes = Encoding.UTF8.GetBytes(metadataString);
+        if (metadataBytes.Length > MaxMetadataPayloadBytes)
+        {
+            metadataBytes = metadataBytes.AsSpan(0, MaxMetadataPayloadBytes).ToArray();
+        }
+
         var metadataLength = (metadataBytes.Length + 15) / 16; // Round up to 16-byte blocks
         var paddedLength = metadataLength * 16;
 
