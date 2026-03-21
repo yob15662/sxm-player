@@ -145,7 +145,7 @@ public class HlsSegmentProducer
                         var l = line.Trim();
                         if (l.StartsWith("#EXT-X-KEY:", StringComparison.OrdinalIgnoreCase))
                         {
-                            ParseEncryptionKey(l, out currentKey, out currentIV);
+                            (currentKey, currentIV) = await ParseEncryptionKeyAsync(l);
                         }
                         else if (l.EndsWith(".aac", StringComparison.OrdinalIgnoreCase))
                         {
@@ -265,18 +265,18 @@ public class HlsSegmentProducer
         }
     }
 
-    private void ParseEncryptionKey(string keyLine, out byte[]? key, out byte[]? iv)
+    private async Task<(byte[]? key, byte[]? iv)> ParseEncryptionKeyAsync(string keyLine)
     {
-        key = null;
-        iv = null;
+        byte[]? key = null;
+        byte[]? iv = null;
 
         if (!keyLine.Contains("METHOD=AES-128", StringComparison.OrdinalIgnoreCase))
-            return;
+            return (key, iv);
 
         var m = HlsEncryptionService.GuidPattern.Matches(keyLine);
         if (m.Count > 0)
         {
-            key = _player.GetDecryptionKey(m[^1].Value).GetAwaiter().GetResult();
+            key = await _player.GetDecryptionKey(m[^1].Value);
         }
 
         var ivIdx = keyLine.IndexOf("IV=0x", StringComparison.OrdinalIgnoreCase);
@@ -288,5 +288,7 @@ public class HlsSegmentProducer
                 hex = hex[..comma];
             iv = HlsEncryptionService.HexToBytes(hex);
         }
+
+        return (key, iv);
     }
 }

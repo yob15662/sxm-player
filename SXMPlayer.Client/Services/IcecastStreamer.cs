@@ -52,12 +52,11 @@ public class IcecastStreamer
     /// </summary>
     public void StartHLSReader(
         ChannelWriter<SegmentWorkItem> writer,
-        Func<Task<ChannelItemData?>> channelIdProvider,
         SXMListener listener,
         CancellationToken channelChangedCt,
         CancellationToken clientDisconnectCt)
     {
-        var wasAlreadyActive = _segmentProducer.StartProducer(writer, channelIdProvider, listener, channelChangedCt, clientDisconnectCt);
+        var wasAlreadyActive = _segmentProducer.StartProducer(writer, _metadataService.GetCurrentChannelAsync, listener, channelChangedCt, clientDisconnectCt);
 
         if (wasAlreadyActive)
         {

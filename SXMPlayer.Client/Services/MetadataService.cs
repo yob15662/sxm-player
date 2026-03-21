@@ -9,20 +9,18 @@ namespace SXMPlayer;
 /// </summary>
 public class MetadataService : IDisposable
 {
-    public const string MQTT_TOPIC = "SiriusXM/NowPlaying";
-    public const string MQTT_CHANNEL = $"{MQTT_TOPIC}/Channel";
-    public const string MQTT_ARTIST = $"{MQTT_TOPIC}/Artist";
-    public const string MQTT_TRACK = $"{MQTT_TOPIC}/Track";
-
     private readonly ILogger<MetadataService> logger;
     private readonly APISession session;
     private readonly SxmSessionService sxmSessionService;
     private readonly PlaylistService playlistService;
     private readonly CancellationToken cancellationToken;
+    private readonly string currentChannelFile;
 
     // Now playing state
     private NowPlayingData? _nowPlaying;
     private Action<NowPlayingData>? _nowPlayingListener;
+    private ChannelItemData? _currentChannel;
+    private List<ChannelItemData>? _allChannels;
     private DateTimeOffset? _audioOriginalTS;
     private DateTimeOffset? _currentSelectionTS;
     private DateTimeOffset? _lastNowPlayingListenersUpdate;
@@ -44,12 +42,14 @@ public class MetadataService : IDisposable
         APISession session,
         SxmSessionService sxmSessionService,
         PlaylistService playlistService,
+        string currentChannelFile,
         CancellationToken cancellationToken)
     {
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.sxmSessionService = sxmSessionService ?? throw new ArgumentNullException(nameof(sxmSessionService));
         this.playlistService = playlistService ?? throw new ArgumentNullException(nameof(playlistService));
+        this.currentChannelFile = currentChannelFile ?? throw new ArgumentNullException(nameof(currentChannelFile));
         this.cancellationToken = cancellationToken;
     }
 
@@ -62,6 +62,8 @@ public class MetadataService : IDisposable
     /// Gets the audio timestamp from the current segment.
     /// </summary>
     public DateTimeOffset? AudioOriginalTimestamp => _audioOriginalTS;
+
+    public virtual DateTimeOffset? GetAudioOriginalTimestamp() => _audioOriginalTS;
 
     /// <summary>
     /// Registers a listener to be notified when now playing information changes.
@@ -133,9 +135,8 @@ public class MetadataService : IDisposable
     /// Gets now playing information for a specific channel and timestamp.
     /// </summary>
     public async Task<(string artist, string title, string? id)?> GetNowPlaying(
-        string channelId, 
-        DateTimeOffset? ts, 
-        Func<Task<List<ChannelItemData>>> getChannelsAsync,
+        string channelId,
+        DateTimeOffset? ts,
         bool tryRefresh = true)
     {
         List<MetadataItem>? currentCuts;
@@ -150,9 +151,9 @@ public class MetadataService : IDisposable
             {
                 await RefreshAllCuts(channelId);
                 cutsRefreshed++;
-                return await GetNowPlaying(channelId, ts, getChannelsAsync, false);
+                return await GetNowPlaying(channelId, ts, false);
             }
-            var channelInfo = (await getChannelsAsync()).First(c => c.Entity.Id == channelId);
+            var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
             logger.LogWarning($"no cuts or no current channel - channel={channelId} ts={ts}");
             return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
         }
@@ -168,12 +169,12 @@ public class MetadataService : IDisposable
             if (cutsRefreshed >= 2)
             {
                 logger.LogWarning($"Too many cuts refreshes - giving up - channel={channelId} ts={ts?.ToLocalTime()}");
-                var channelInfo = (await getChannelsAsync()).First(c => c.Entity.Id == channelId);
+                var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
                 return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
             }
             await RefreshAllCuts(channelId);
             cutsRefreshed++;
-            return await GetNowPlaying(channelId, ts, getChannelsAsync, false);
+            return await GetNowPlaying(channelId, ts, false);
         }
         
         cutsRefreshed = 0;
@@ -210,7 +211,7 @@ public class MetadataService : IDisposable
         }
         else
         {
-            var channelInfo = (await getChannelsAsync()).First(c => c.Entity.Id == channelId);
+            var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
             logger.LogWarning($"Invalid now playing data - channel={channelId} ts={ts?.ToLocalTime()} - first={firstCut?.StartTime.ToLocalTime()} - last={lastCut?.StartTime.ToLocalTime()}");
             return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
         }
@@ -220,20 +221,19 @@ public class MetadataService : IDisposable
     /// Sets now playing information from an HLS segment.
     /// </summary>
     public async Task SetNowPlayingFromSegment(
-        SXMSegment segment, 
-        Func<Task<List<ChannelItemData>>> getChannelsAsync,
+        SXMSegment segment,
         string? mqttServer,
         bool retry = true)
     {
         _audioOriginalTS = null;
-        var channels = await getChannelsAsync();
+        var channels = await GetChannelsAsync();
         var prevNowPlaying = _nowPlaying;
         _nowPlaying = null;
         
         if (playlistService.StreamTimeMap.TryGetValue(segment.segment, out var audioTS))
         {
             _audioOriginalTS = audioTS;
-            var trackInfo = await GetNowPlaying(segment.stream.channel, _audioOriginalTS, getChannelsAsync);
+            var trackInfo = await GetNowPlaying(segment.stream.channel, _audioOriginalTS);
             var channelName = channels.FirstOrDefault(s => s.Entity.Id == segment.stream.channel);
             
             if (trackInfo != null && channelName != null)
@@ -250,7 +250,7 @@ public class MetadataService : IDisposable
             if (retry)
             {
                 await RefreshAllCuts(segment.stream.channel);
-                await SetNowPlayingFromSegment(segment, getChannelsAsync, mqttServer, false);
+                await SetNowPlayingFromSegment(segment, mqttServer, false);
                 return;
             }
             logger.LogWarning($"Cannot find {segment.segment} in playlistMap");
@@ -289,6 +289,62 @@ public class MetadataService : IDisposable
             allCutsChannelInfo = channelId;
             allCutsCurrentChannel = items;
         }
+    }
+
+    public async Task<List<ChannelItemData>> GetChannelsAsync()
+    {
+        if (_allChannels != null)
+        {
+            return _allChannels;
+        }
+
+        await sxmSessionService.LoginIfNecessary(nameof(GetChannelsAsync));
+        var container = await session.apiClient.AllChannelsAsync(
+            "3JoBfOCIwo6FmTpzM1S2H7",
+            "false",
+            "curated-grouping",
+            "403ab6a5-d3c9-4c2a-a722-a94a6a5fd056",
+            "0",
+            "1000",
+            "small_list",
+            session.GetKey());
+
+        _allChannels = container?.Container?.Sets?.First()?.Items?.ToList();
+        if (_allChannels is null)
+        {
+            logger.LogError("No channels found");
+            return new List<ChannelItemData>();
+        }
+
+        return _allChannels;
+    }
+
+    public virtual ChannelItemData? GetCurrentChannel() => _currentChannel;
+
+    public async Task<ChannelItemData?> GetCurrentChannelAsync()
+    {
+        if (_currentChannel == null)
+        {
+            _currentChannel = await Tools.ReadJsonFile<ChannelItemData>(currentChannelFile, logger);
+        }
+
+        return _currentChannel;
+    }
+
+    public async Task<(ChannelItemData channel, bool hasChanged)> SetCurrentChannelAsync(string channelId)
+    {
+        var hasChanged = _currentChannel?.Entity.Id != channelId;
+
+        var allChannels = await GetChannelsAsync();
+        _currentChannel = allChannels.FirstOrDefault(c => c.Entity.Id == channelId);
+        await Tools.WriteObject(_currentChannel, currentChannelFile, logger);
+
+        if (_currentChannel is null)
+        {
+            throw new InvalidOperationException($"Channel {channelId} not found");
+        }
+
+        return (_currentChannel, hasChanged);
     }
 
     public void Dispose()

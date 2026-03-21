@@ -150,8 +150,9 @@ app.MapGet("/playlists/{id}.{ext?}", async (HttpContext ctx, string id, string? 
         }
         else if (ext == "m3u")
         {
-            var channelName = id == SiriusXMPlayer.CURRENT_ID ? "Current" : sxm.GetChannelFromFilename(id)?.ChannelName;
-            var channelId = id == SiriusXMPlayer.CURRENT_ID ? SiriusXMPlayer.CURRENT_ID : sxm.GetChannelFromFilename(id)?.Id!;
+            var channel = id == SiriusXMPlayer.CURRENT_ID ? null : await sxm.GetChannelFromFilename(id);
+            var channelName = id == SiriusXMPlayer.CURRENT_ID ? "Current" : channel?.ChannelName;
+            var channelId = id == SiriusXMPlayer.CURRENT_ID ? SiriusXMPlayer.CURRENT_ID : channel?.Id!;
             _ = sxm.TrackListenerIP(ipAddress);
             var playlist = ctx.Request.Path.Value;
             var serverUrl = (ctx.Request.IsHttps ? "https" : "http") + "://" + ctx.Request.Host.ToString();

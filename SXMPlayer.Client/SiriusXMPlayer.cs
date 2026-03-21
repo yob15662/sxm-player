@@ -69,9 +69,6 @@ public class SiriusXMPlayer : IDisposable
 
     //private readonly HttpClientHandler session;
     private readonly string username;
-    private List<ChannelItemData>? _allChannels;
-    // Metadata fields removed - now in MetadataService
-    private ChannelItemData? _currentChannel;
     // Metadata fields removed - now in MetadataService
     private HttpClientHandler? _session;
     // Metadata fields removed - now in MetadataService
@@ -90,6 +87,7 @@ public class SiriusXMPlayer : IDisposable
     private readonly IcecastStreamer icecastStreamer;
     private readonly ResiliencePipeline<HttpResponseMessage> httpRetryPipeline;
     private readonly MetadataService metadataService;
+    private readonly ProgressTimerManager progressTimerManager;
 
     //status - every 50 seconds
     //https://api.edge-gateway.siriusxm.com/playback/stream-enforcement/v1/status
@@ -129,7 +127,7 @@ public class SiriusXMPlayer : IDisposable
             logger.LogInformation($"Using MQTT server {mqttServer}");
         this.logger = logger;
         var contentRootPath = hostingEnvironment.ContentRootPath;
-        currentChannelFile = Path.Combine(contentRootPath, "currentChannel.json");
+        var currentChannelFile = Path.Combine(contentRootPath, "currentChannel.json");
         session = new APISession("https://api.edge-gateway.siriusxm.com", loggerFactory, contentRootPath, username, password);
         sxmSessionService = new SxmSessionService(session, loggerFactory.CreateLogger<SxmSessionService>(), tokenSource, null);
         sxmSessionService.InitializeActivityTimer();
@@ -142,8 +140,16 @@ public class SiriusXMPlayer : IDisposable
             session,
             sxmSessionService,
             playlistService,
+            currentChannelFile,
             tokenSource.Token);
         metadataService.StartTimeoutHandler();
+
+        progressTimerManager = new ProgressTimerManager(
+            loggerFactory.CreateLogger<ProgressTimerManager>(),
+            HasActiveClient,
+            metadataService,
+            session,
+            tokenSource.Token);
 
         // pass a provider for now-playing into IcecastStreamer
         icecastStreamer = new IcecastStreamer(logger, metadataService, this);
@@ -171,7 +177,7 @@ public class SiriusXMPlayer : IDisposable
 
     public void Dispose()
     {
-        StopProgressTimer();
+        progressTimerManager.Dispose();
         _session?.Dispose();
         tokenSource.Cancel();
         sxmSessionService.Dispose();
@@ -179,17 +185,7 @@ public class SiriusXMPlayer : IDisposable
 
     public async Task<List<ChannelItemData>> GetChannelsAsync()
     {
-        if (_allChannels != null) return _allChannels;
-        await sxmSessionService.LoginIfNecessary(nameof(GetChannelsAsync));
-        var container = await session.apiClient.AllChannelsAsync("3JoBfOCIwo6FmTpzM1S2H7", "false", "curated-grouping",
-                                        "403ab6a5-d3c9-4c2a-a722-a94a6a5fd056", "0", "1000", "small_list", session.GetKey());
-        _allChannels = container?.Container?.Sets?.First()?.Items?.ToList();
-        if (_allChannels is null)
-        {
-            logger.LogError("No channels found");
-            return new List<ChannelItemData>();
-        }
-        return _allChannels;
+        return await metadataService.GetChannelsAsync();
     }
 
     public async Task<IEnumerable<string>?> GetFavoritesAsync()
@@ -204,111 +200,6 @@ public class SiriusXMPlayer : IDisposable
 
     public const string CURRENT_ID = "current";
 
-    private string currentChannelFile;
-
-    private async Task<ChannelItemData?> GetCurrentChannel()
-    {
-        if (_currentChannel == null)
-        {
-            _currentChannel = await Tools.ReadJsonFile<ChannelItemData>(currentChannelFile, logger);
-        }
-        return _currentChannel;
-    }
-
-    //{"actions":[
-    //  {"progress":
-    //  {"source":
-    //      {"type":"channel-xtra","id":"62b1ccac-805b-28f2-a2a3-8030b5ecf55e"},
-    //      "item":{"type":"xtra-channel-track","id":"376664ea-698c-87cb-4f52-bb6f728f843b"},
-    //      "position":{"elapsedTimeMs":116541},
-    //      "sourceTimestamp":"2024-12-26T23:09:29.163Z",
-    //      "logicalClock":{"counter":193,"epoch":0}}}]}
-    private int logicalClockCounter = 0;
-    private DateTimeOffset? startTs;
-
-    /// <summary>
-    /// Send a progress action to the server
-    /// </summary>
-    /// <returns>true if progress has started</returns>
-    public async Task<bool> SendProgressAction()
-    {
-        var nowPlaying = metadataService.GetNowPlaying();
-        if (_currentChannel is null || nowPlaying is null || !HasActiveClient())
-        {
-            return false;
-        }
-
-        var isChannelExtra = _currentChannel.Entity.Type != "channel-linear";
-        var type = isChannelExtra ? "channel-xtra" : "channel-linear";
-        var itemType = isChannelExtra ? "xtra-channel-track" : "cut-linear";
-        Position position;
-        Position2 position2;
-        Actions3 action;
-        var hasStarted = false;
-        if (isChannelExtra)
-        {
-            position = new Position() { ElapsedTimeMs = (startTs is null) ? 0 : (DateTimeOffset.Now - startTs.Value).TotalMilliseconds };
-            position2 = new Position2() { ElapsedTimeMs = position.ElapsedTimeMs };
-        }
-        else
-        {
-            var audioTS = metadataService.AudioOriginalTimestamp;
-            if (audioTS is null)
-            {
-                return false;
-            }
-            position = new Position() { AbsoluteTime = audioTS.Value.ToString("o") };
-            position2 = new Position2() { AbsoluteTime = position.AbsoluteTime };
-        }
-        if (_currentChannel.Entity.Id is null || nowPlaying.id is null)
-        {
-            logger.LogWarning("Cannot send progress action - no current channel or no nowPlaying data");
-            return false;
-        }
-        if (_channelHasChanged)
-        {
-            _channelHasChanged = false;
-            startTs = DateTimeOffset.UtcNow;
-            action = new()
-            {
-                Start = new()
-                {
-                    Source = new() { Type = type, Id = _currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = nowPlaying.id },
-                    Position = position2,
-                    SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
-                    LogicalClock = new() { Counter = logicalClockCounter, Epoch = 0 }
-                }
-            };
-            hasStarted = true;
-        }
-        else
-        {
-            action = new()
-            {
-
-                Progress = new()
-                {
-                    Source = new() { Type = type, Id = _currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = nowPlaying.id },
-                    Position = position,
-                    SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
-                    LogicalClock = new() { Counter = logicalClockCounter, Epoch = 0 }
-                }
-            };
-        }
-        logicalClockCounter++;
-        logger.LogDebug($"Sending progress action - {action}");
-        var result = await session.apiClient.ActionsAsync(new() { Actions = [action] });
-        if (result?.FailedActions?.Count() > 0)
-        {
-            // concatenate failed action ids
-            var failedIds = string.Join(", ", result.FailedActions.Select(o => o?.ToString()));
-            logger.LogWarning($"Failed to send progress action - {failedIds} failed");
-        }
-        return hasStarted;
-    }
-
     public virtual async Task<string?> GetStreamPlaylist(string channelId, SXMListener? listener, string? alias = null, bool useCache = true, int retries = 0)
     {
         var start = Stopwatch.GetTimestamp();
@@ -321,7 +212,7 @@ public class SiriusXMPlayer : IDisposable
 
         await sxmSessionService.LoginIfNecessary(nameof(GetStreamPlaylist));
         sxmSessionService.StartStatusChecks();
-        var currentChannel = await GetCurrentChannel();
+        var currentChannel = await metadataService.GetCurrentChannelAsync();
         logger.LogDebug("Current channel before playlist check - requested={RequestedChannelId} current={CurrentChannelId}", channelId, currentChannel?.Entity.Id);
 
         var isChannelChange = channelId != CURRENT_ID && channelId != currentChannel?.Entity.Id;
@@ -358,7 +249,7 @@ public class SiriusXMPlayer : IDisposable
                     selected => TuneSource(selected),
                     async url => await GetHttpResponseMessage(url, getQueryParameters())),
                 async url => await GetHttpResponseMessage(url, getQueryParameters()),
-                async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts, GetChannelsAsync),
+                async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts),
                 metadataService.GetNowPlaying());
 
             avgSegmentDuration = playlistService.AverageSegmentDuration;
@@ -408,22 +299,18 @@ public class SiriusXMPlayer : IDisposable
 
     private async Task<ChannelItemData> SetCurrentChannel(string channelId)
     {
-        if (_currentChannel?.Entity.Id != channelId)
+        var (currentChannel, hasChanged) = await metadataService.SetCurrentChannelAsync(channelId);
+
+        if (hasChanged)
         {
             logger.LogInformation($"Setting current channel to {channelId}");
-            _channelHasChanged = true;
+            progressTimerManager.MarkChannelChanged();
             channelChangedSource.Cancel();
             channelChangedSource = new CancellationTokenSource();
             // Cuts will refresh on next metadata request
         }
-        var allChannels = await GetChannelsAsync();
-        _currentChannel = allChannels.FirstOrDefault(c => c.Entity.Id == channelId);
-        await Tools.WriteObject(_currentChannel, currentChannelFile, logger);
-        if (_currentChannel is null)
-        {
-            throw new InvalidOperationException($"Channel {channelId} not found");
-        }
-        return _currentChannel;
+
+        return currentChannel;
     }
 
     public async Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
@@ -435,16 +322,17 @@ public class SiriusXMPlayer : IDisposable
     private async Task<Stream> GetSegmentInternal(string channelId, string version, string segmentId, SXMListener? client)
     {
         UpdateClientActivity();
-        if (channelId == CURRENT_ID && _currentChannel != null)
+        var currentChannel = await metadataService.GetCurrentChannelAsync();
+        if (channelId == CURRENT_ID && currentChannel != null)
         {
             //set the real channel
-            channelId = _currentChannel!.Entity.Id!;
+            channelId = currentChannel.Entity.Id!;
         }
         // Channel mismatch check - don't allow segment requests to change channels
         // Only GetStreamPlaylist with explicit channel IDs should trigger SetCurrentChannel
-        if (channelId != _currentChannel?.Entity.Id)
+        if (channelId != currentChannel?.Entity.Id)
         {
-            throw new InvalidOperationException($"Channel mismatch: requested {channelId} but current is {_currentChannel?.Entity.Id}. Channel must be set via playlist request first.");
+            throw new InvalidOperationException($"Channel mismatch: requested {channelId} but current is {currentChannel?.Entity.Id}. Channel must be set via playlist request first.");
         }
 
         if (!playlistService.TryGetStream(channelId, out var stream) || stream is null)
@@ -511,7 +399,7 @@ public class SiriusXMPlayer : IDisposable
 
     private async Task SetNowPlayingFromSegment(SXMSegment segment, bool retry = true)
     {
-        await metadataService.SetNowPlayingFromSegment(segment, GetChannelsAsync, mqttServer, retry);
+        await metadataService.SetNowPlayingFromSegment(segment, mqttServer, retry);
     }
 
     public virtual async Task<byte[]> GetDecryptionKey(string guid)
@@ -564,113 +452,15 @@ public class SiriusXMPlayer : IDisposable
         }, tokenSource.Token);
     }
 
-    private PeriodicTimer? progressTimer;
-    private Task? progressTimerTask;
-    private SemaphoreSlim progressSemamphore = new SemaphoreSlim(1, 1);
-
     private void StopProgressTimer()
     {
-        if (!progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
-        {
-            logger.LogWarning("Could not acquire progress timer semaphore - skipping progress timer stop");
-            return;
-        }
-
-        try
-        {
-            progressTimer?.Dispose();
-            progressTimer = null;
-        }
-        finally
-        {
-            progressSemamphore.Release();
-        }
+        progressTimerManager.Stop();
     }
 
     private void StartProgressTimer(bool isChannelChanged)
     {
-        if (!progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
-        {
-            logger.LogWarning("Could not acquire progress timer semaphore - skipping progress timer start");
-            return;
-        }
-        try
-        {
-            if (progressTimerTask is not null && !progressTimerTask.IsCompleted)
-            {
-                if (isChannelChanged && progressTimer is not null)
-                {
-                    _channelHasChanged = true;
-                    progressTimer.Period = TimeSpan.FromSeconds(1);
-                }
-                return;
-            }
-
-            _channelHasChanged = isChannelChanged;
-
-            progressTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-            progressTimerTask = Task.Run(async () =>
-            {
-                try
-                {
-                    while (!tokenSource.IsCancellationRequested)
-                    {
-                        if (!HasActiveClient())
-                        {
-                            logger.LogDebug("Stopping progress timer - no active clients");
-                            break;
-                        }
-
-                        var hasStarted = await SendProgressAction();
-                        if (hasStarted && progressTimer is not null)
-                        {
-                            progressTimer.Period = TimeSpan.FromSeconds(60);
-                        }
-
-                        if (progressTimer is null)
-                        {
-                            break;
-                        }
-
-                        var hasNextTick = await progressTimer.WaitForNextTickAsync(tokenSource.Token);
-                        if (!hasNextTick)
-                        {
-                            break;
-                        }
-                    }
-                }
-                catch (OperationCanceledException) when (tokenSource.IsCancellationRequested)
-                {
-                }
-                finally
-                {
-                    if (progressSemamphore.Wait(TimeSpan.FromSeconds(2)))
-                    {
-                        try
-                        {
-                            progressTimer?.Dispose();
-                            progressTimer = null;
-                            progressTimerTask = null;
-                        }
-                        finally
-                        {
-                            progressSemamphore.Release();
-                        }
-                    }
-                    else
-                    {
-                        progressTimerTask = null;
-                    }
-                }
-            });
-        }
-        finally
-        {
-            progressSemamphore.Release();
-        }
+        progressTimerManager.Start(isChannelChanged);
     }
-
-    private bool _channelHasChanged;
     private double? avgSegmentDuration;
 
     public int? ICYMetaInt { get; internal set; }
@@ -686,7 +476,7 @@ public class SiriusXMPlayer : IDisposable
         await sxmSessionService.LoginIfNecessary(nameof(TuneSource));
         try
         {
-            var allChannels = await GetChannelsAsync();
+            var allChannels = await metadataService.GetChannelsAsync();
             var channel = allChannels.SingleOrDefault(c => c.Entity.Id == channelId);
             if (channel is null)
             {
@@ -745,9 +535,10 @@ public class SiriusXMPlayer : IDisposable
 
     private Dictionary<string, string> getQueryParameters() => new Dictionary<string, string> { };
 
-    public EntityData? GetChannelFromFilename(string fileName)
+    public async Task<EntityData?> GetChannelFromFilename(string fileName)
     {
-        return _allChannels?.First(c => c.Entity.Filename == fileName).Entity;
+        var channels = await metadataService.GetChannelsAsync();
+        return channels.First(c => c.Entity.Filename == fileName).Entity;
     }
 
     public SXMListener TrackListenerIP(IPAddress ipAddress)
@@ -824,7 +615,7 @@ public class SiriusXMPlayer : IDisposable
 
     public async Task<string?> GetCurrentChannelImage()
     {
-        var current = await GetCurrentChannel();
+        var current = await metadataService.GetCurrentChannelAsync();
         if (current == null)
         {
             return null;
@@ -848,7 +639,7 @@ public class SiriusXMPlayer : IDisposable
     {
         var listener = TrackListenerIP(ctx.Connection.RemoteIpAddress!);
         _ = await GetStreamPlaylist(channelId, listener, alias: CURRENT_ID, useCache: false);
-        var current = await GetCurrentChannel();
+        var current = await metadataService.GetCurrentChannelAsync();
         if (current == null)
         {
             throw new InvalidOperationException("No channel data available");
@@ -906,7 +697,7 @@ public class SiriusXMPlayer : IDisposable
                 SingleWriter = false
             });
 
-            icecastStreamer.StartHLSReader(segmentQueue.Writer, GetCurrentChannel, listener, channelChangedSource.Token, ct);
+            icecastStreamer.StartHLSReader(segmentQueue.Writer, listener, channelChangedSource.Token, ct);
 
             int bytesUntilMeta = metaInt;
             var receivedAnyData = false;
