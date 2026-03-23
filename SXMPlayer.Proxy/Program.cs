@@ -15,7 +15,8 @@ builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
 {
     options.SingleLine = true;
-    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff zzz ";
+    options.UseUtcTimestamp = false;
+    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
 });
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 

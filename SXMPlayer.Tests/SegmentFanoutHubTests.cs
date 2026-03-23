@@ -42,7 +42,7 @@ public class SegmentFanoutHubTests
     }
 
     [Fact]
-    public async Task Register_WithSameListener_ReplacesPreviousChannel()
+    public async Task Register_WithSameListener_AllowsConcurrentChannels()
     {
         var hub = new SegmentFanoutHub(() => { });
         var listener = CreateListener("127.0.0.10");
@@ -52,12 +52,34 @@ public class SegmentFanoutHubTests
         hub.Register(listener, firstChannel.Writer, CancellationToken.None);
         hub.Register(listener, secondChannel.Writer, CancellationToken.None);
 
+        await hub.BroadcastAsync(CreateItem(), CancellationToken.None);
+
+        var firstItem = await firstChannel.Reader.ReadAsync();
+        var secondItem = await secondChannel.Reader.ReadAsync();
+
+        Assert.Equal("segment.aac", firstItem.SegmentName);
+        Assert.Equal("segment.aac", secondItem.SegmentName);
+    }
+
+    [Fact]
+    public async Task Register_WithSameListener_DisconnectsSingleChannelOnly()
+    {
+        var hub = new SegmentFanoutHub(() => { });
+        var listener = CreateListener("127.0.0.11");
+        using var firstDisconnect = new CancellationTokenSource();
+        var firstChannel = System.Threading.Channels.Channel.CreateUnbounded<SegmentWorkItem>();
+        var secondChannel = System.Threading.Channels.Channel.CreateUnbounded<SegmentWorkItem>();
+
+        hub.Register(listener, firstChannel.Writer, firstDisconnect.Token);
+        hub.Register(listener, secondChannel.Writer, CancellationToken.None);
+
+        firstDisconnect.Cancel();
         await Assert.ThrowsAsync<ChannelClosedException>(() => firstChannel.Reader.ReadAsync().AsTask());
 
         await hub.BroadcastAsync(CreateItem(), CancellationToken.None);
 
-        var item = await secondChannel.Reader.ReadAsync();
-        Assert.Equal("segment.aac", item.SegmentName);
+        var secondItem = await secondChannel.Reader.ReadAsync();
+        Assert.Equal("segment.aac", secondItem.SegmentName);
     }
 
     [Fact]

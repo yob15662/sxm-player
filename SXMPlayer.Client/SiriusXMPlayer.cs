@@ -746,8 +746,16 @@ public class SiriusXMPlayer : IDisposable
 
             if (!receivedAnyData)
             {
-                logger.LogDebug("No HLS segments were produced for this iteration; backing off before restart.");
-                await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
+                logger.LogDebug("No HLS segments were produced for this iteration; waiting for producer activity before restart.");
+                using var waitForDataCts = CancellationTokenSource.CreateLinkedTokenSource(ct, channelChangedSource.Token);
+                try
+                {
+                    await icecastStreamer.WaitForProducerActivityAsync(waitForDataCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested && !channelChangedSource.IsCancellationRequested)
+                {
+                    // Ignore transient wait cancellations and continue the loop.
+                }
             }
         }
     }

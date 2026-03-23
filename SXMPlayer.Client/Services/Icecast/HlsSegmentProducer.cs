@@ -23,6 +23,22 @@ public class HlsSegmentProducer
     private readonly SegmentFanoutHub _fanout;
     private CancellationTokenSource? _producerStopCts;
     private Task? _producerTask;
+    private TaskCompletionSource<bool> _activitySignal = CreateActivitySignal();
+
+    private static TaskCompletionSource<bool> CreateActivitySignal()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private void SignalActivity()
+    {
+        var current = Interlocked.Exchange(ref _activitySignal, CreateActivitySignal());
+        current.TrySetResult(true);
+    }
+
+    public Task WaitForActivityAsync(CancellationToken cancellationToken)
+    {
+        var waitTask = Volatile.Read(ref _activitySignal).Task;
+        return waitTask.WaitAsync(cancellationToken);
+    }
 
     public HlsSegmentProducer(SiriusXMPlayer player, ILogger logger)
     {
@@ -181,6 +197,7 @@ public class HlsSegmentProducer
 
                     if (segmentsSent > 0)
                     {
+                        SignalActivity();
                         await Task.Delay(TimeSpan.FromSeconds(targetDuration > 0 ? targetDuration - 1 : 1.0), combinedCt);
                     }
                     else
@@ -196,6 +213,7 @@ public class HlsSegmentProducer
                 {
                     completionError = ex;
                     _logger.LogError(ex, "Error in HLS segment producer.");
+                    SignalActivity();
                     await Task.Delay(2000, combinedCt);
                 }
             }
@@ -212,6 +230,7 @@ public class HlsSegmentProducer
             }
 
             _logger.LogInformation("Shared HLS segment producer has stopped.");
+            SignalActivity();
             combinedCts.Dispose();
         }
     }

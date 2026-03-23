@@ -100,6 +100,14 @@ public class IcecastStreamer
     }
 
     /// <summary>
+    /// Waits until the shared HLS producer reports activity.
+    /// </summary>
+    public Task WaitForProducerActivityAsync(CancellationToken ct)
+    {
+        return _segmentProducer.WaitForActivityAsync(ct);
+    }
+
+    /// <summary>
     /// Cancels producers for inactive clients.
     /// </summary>
     public void CancelProducersForInactiveClients(System.Collections.Generic.IEnumerable<SXMListener> inactiveClients)
