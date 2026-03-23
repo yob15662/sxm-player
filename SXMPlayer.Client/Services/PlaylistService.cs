@@ -126,11 +126,9 @@ public class PlaylistService
     public async Task<string?> GetStreamPlaylistAsync(
         string channelId,
         string currentId,
-        SXMListener? listener,
         string? alias,
         bool useCache,
         ChannelItemData? currentChannel,
-        bool listenerIsPrimary,
         Func<string, Task> setCurrentChannel,
         Func<string, Task<string>> getProxyPlaylistUrl,
         Func<string, Task<HttpResponseMessage?>> getHttpResponse,
@@ -138,34 +136,13 @@ public class PlaylistService
         NowPlayingData? nowPlayingFallback)
     {
         var start = DateTimeOffset.UtcNow;
-        _logger.LogDebug("GetStreamPlaylistAsync start - channelId={ChannelId} currentId={CurrentId} alias={Alias} useCache={UseCache} listenerIp={ListenerIp} listenerIsPrimary={ListenerIsPrimary} hasCurrentChannel={HasCurrentChannel} hasCachedPlaylist={HasCachedPlaylist}",
+        _logger.LogDebug("GetStreamPlaylistAsync start - channelId={ChannelId} currentId={CurrentId} alias={Alias} useCache={UseCache} hasCurrentChannel={HasCurrentChannel} hasCachedPlaylist={HasCachedPlaylist}",
             channelId,
             currentId,
             alias,
             useCache,
-            listener?.IPAddress,
-            listenerIsPrimary,
             currentChannel is not null,
             _cachedPlaylist is not null);
-
-        if (channelId == currentId && !listenerIsPrimary)
-        {
-            _logger.LogDebug("Current-channel alias requested by non-primary listener. Returning cached playlist when available.");
-            if (_cachedPlaylist is null && currentChannel != null)
-            {
-                _logger.LogDebug("Cached playlist missing; resolving alias to current channel id={CurrentChannelId}", currentChannel.Entity.Id);
-                return await GetStreamPlaylistAsync(currentChannel.Entity.Id, currentId, listener, channelId, useCache, currentChannel, listenerIsPrimary, setCurrentChannel, getProxyPlaylistUrl, getHttpResponse, getNowPlaying, nowPlayingFallback);
-            }
-
-            if (_cachedPlaylist is null && currentChannel is null)
-            {
-                _logger.LogDebug("Cannot resolve current-channel playlist because cached playlist and current channel are both missing.");
-                throw new InvalidOperationException("Cannot get current playlist - no channel selected");
-            }
-
-            _logger.LogDebug("Returning cached playlist for non-primary current-channel request.");
-            return _cachedPlaylist;
-        }
 
         if (channelId == currentId)
         {

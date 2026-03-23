@@ -29,11 +29,9 @@ public class PlaylistServiceTests
         var output = await service.GetStreamPlaylistAsync(
             channelId: "channel",
             currentId: SiriusXMPlayer.CURRENT_ID,
-            listener: new SXMListener(IPAddress.Loopback),
             alias: "channel",
             useCache: false,
             currentChannel: null,
-            listenerIsPrimary: true,
             setCurrentChannel: _ => Task.CompletedTask,
             getProxyPlaylistUrl: _ => Task.FromResult(proxyUrl),
             getHttpResponse: _ => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.OK)

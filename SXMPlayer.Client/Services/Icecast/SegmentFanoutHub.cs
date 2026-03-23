@@ -12,7 +12,7 @@ namespace SXMPlayer;
 /// </summary>
 public sealed class SegmentFanoutHub
 {
-    private readonly ConcurrentDictionary<SXMListener, SubscriberRegistration> _subscribers = new();
+    private readonly ConcurrentDictionary<Guid, (SXMListener Listener, SubscriberRegistration Registration)> _subscribers = new();
     private readonly Action _onEmpty;
 
     public SegmentFanoutHub(Action onEmpty)
@@ -22,7 +22,7 @@ public sealed class SegmentFanoutHub
 
     public bool HasSubscribers => !_subscribers.IsEmpty;
 
-    public int SubscriberCount => _subscribers.Count;
+    public int SubscriberCount => _subscribers.Values.Select(v => v.Listener).Distinct().Count();
 
     public void Register(SXMListener listener, ChannelWriter<SegmentWorkItem> writer, CancellationToken disconnectToken)
     {
@@ -42,31 +42,15 @@ public sealed class SegmentFanoutHub
             return;
         }
 
-        var subscriber = new SubscriberRegistration(writer, disconnectToken.Register(() => Unregister(listener)));
+        var subscriptionId = Guid.NewGuid();
+        var subscriber = new SubscriberRegistration(writer, disconnectToken.Register(() => Unregister(subscriptionId)));
 
-        while (true)
-        {
-            if (_subscribers.TryGetValue(listener, out var existing))
-            {
-                if (_subscribers.TryUpdate(listener, subscriber, existing))
-                {
-                    existing.Complete();
-                    return;
-                }
-
-                continue;
-            }
-
-            if (_subscribers.TryAdd(listener, subscriber))
-            {
-                return;
-            }
-        }
+        _subscribers[subscriptionId] = (listener, subscriber);
     }
 
     public async ValueTask BroadcastAsync(SegmentWorkItem item, CancellationToken cancellationToken)
     {
-        foreach (var (listener, subscriber) in _subscribers.ToArray())
+        foreach (var (subscriptionId, (listener, subscriber)) in _subscribers.ToArray())
         {
             try
             {
@@ -74,16 +58,29 @@ public sealed class SegmentFanoutHub
             }
             catch (ChannelClosedException)
             {
-                Unregister(listener);
+                Unregister(subscriptionId);
             }
         }
     }
 
     public void Unregister(SXMListener listener, Exception? error = null)
     {
-        if (_subscribers.TryRemove(listener, out var subscriber))
+        var subscriptionsToRemove = _subscribers
+            .Where(kvp => kvp.Value.Listener.Equals(listener))
+            .Select(kvp => kvp.Key)
+            .ToArray();
+
+        foreach (var subscriptionId in subscriptionsToRemove)
         {
-            subscriber.Complete(error);
+            Unregister(subscriptionId, error);
+        }
+    }
+
+    private void Unregister(Guid subscriptionId, Exception? error = null)
+    {
+        if (_subscribers.TryRemove(subscriptionId, out var entry))
+        {
+            entry.Registration.Complete(error);
             if (_subscribers.IsEmpty)
             {
                 _onEmpty();
@@ -93,9 +90,9 @@ public sealed class SegmentFanoutHub
 
     public void CompleteAll(Exception? error = null)
     {
-        foreach (var listener in _subscribers.Keys.ToArray())
+        foreach (var subscriptionId in _subscribers.Keys.ToArray())
         {
-            Unregister(listener, error);
+            Unregister(subscriptionId, error);
         }
     }
 

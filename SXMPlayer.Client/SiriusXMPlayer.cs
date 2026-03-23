@@ -218,12 +218,7 @@ public class SiriusXMPlayer : IDisposable
         var isChannelChange = channelId != CURRENT_ID && channelId != currentChannel?.Entity.Id;
         if (isChannelChange)
         {
-            logger.LogInformation($"Changing channel to {channelId} - client is {listener?.IPAddress}");
-            SetPrimaryClient(listener);
-        }
-        else
-        {
-            EnsurePrimaryExists(listener);
+            logger.LogInformation($"Changing channel to {channelId}");
         }
 
         if (listener is not null)
@@ -238,11 +233,9 @@ public class SiriusXMPlayer : IDisposable
             var playlist = await playlistService.GetStreamPlaylistAsync(
                 channelId,
                 CURRENT_ID,
-                listener,
                 alias,
                 useCache,
                 currentChannel,
-                listener?.IsPrimary ?? false,
                 async selectedChannelId => await SetCurrentChannel(selectedChannelId),
                 async selectedChannelId => await playlistService.GetProxyPlaylistUrlAsync(
                     selectedChannelId,
