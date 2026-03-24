@@ -27,8 +27,9 @@ public class IcyStreamWriterTests
         frame[0] = 0xFF;
         frame[1] = 0xF1;
         frame[2] = 0x50;
+        frame[3] = 0x80; // channel_configuration = 2 (stereo)
 
-        frame[3] = (byte)((frameSize >> 11) & 0x03);
+        frame[3] = (byte)((frame[3] & 0xFC) | ((frameSize >> 11) & 0x03));
         frame[4] = (byte)((frameSize >> 3) & 0xFF);
         frame[5] = (byte)((frameSize & 0x07) << 5);
         frame[6] = 0x00;
@@ -642,6 +643,61 @@ public class IcyStreamWriterTests
 
         var recoveredAudio = StripIcyMetadata(responseBody.ToArray(), 64);
         Assert.Equal(expectedAudio, recoveredAudio.Take(expectedAudio.Length).ToArray());
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenAudioIsSplitAcrossCalls_ContinuingBudgetMatchesSinglePassOutput()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+
+        const int metadataInterval = 256;
+
+        var segment1 = Enumerable.Range(0, 3).SelectMany(_ => CreateValidAdtsFrame(128)).ToArray();
+        var segment2 = Enumerable.Range(0, 2).SelectMany(_ => CreateValidAdtsFrame(128)).ToArray();
+        var combined = segment1.Concat(segment2).ToArray();
+
+        var splitWriter = new IcyStreamWriter(builder, logger.Object);
+        var splitContext = CreateMockHttpContext();
+        var splitResponseBody = new MemoryStream();
+        splitContext.Setup(c => c.Response.Body).Returns(splitResponseBody);
+
+        int bytesUntilNextMetadata = metadataInterval;
+        bytesUntilNextMetadata = await splitWriter.WriteAsync(
+            new ReadOnlyMemory<byte>(segment1),
+            splitContext.Object,
+            injectMetadata: true,
+            metadataInterval: metadataInterval,
+            bytesUntilNextMetadata: bytesUntilNextMetadata,
+            CancellationToken.None);
+
+        bytesUntilNextMetadata = await splitWriter.WriteAsync(
+            new ReadOnlyMemory<byte>(segment2),
+            splitContext.Object,
+            injectMetadata: true,
+            metadataInterval: metadataInterval,
+            bytesUntilNextMetadata: bytesUntilNextMetadata,
+            CancellationToken.None);
+
+        Assert.True(bytesUntilNextMetadata > 0 && bytesUntilNextMetadata <= metadataInterval);
+
+        var singlePassWriter = new IcyStreamWriter(CreateMetadataBuilder(), logger.Object);
+        var singlePassContext = CreateMockHttpContext();
+        var singlePassResponseBody = new MemoryStream();
+        singlePassContext.Setup(c => c.Response.Body).Returns(singlePassResponseBody);
+
+        await singlePassWriter.WriteAsync(
+            new ReadOnlyMemory<byte>(combined),
+            singlePassContext.Object,
+            injectMetadata: true,
+            metadataInterval: metadataInterval,
+            bytesUntilNextMetadata: metadataInterval,
+            CancellationToken.None);
+
+        Assert.Equal(singlePassResponseBody.ToArray(), splitResponseBody.ToArray());
+
+        var recoveredAudio = StripIcyMetadata(splitResponseBody.ToArray(), metadataInterval);
+        Assert.Equal(combined, recoveredAudio.Take(combined.Length).ToArray());
     }
 
     [Fact]

@@ -679,6 +679,8 @@ public class SiriusXMPlayer : IDisposable
         ctx.Response.ContentType = injectMeta ? "audio/aacp" : "audio/aac";
         await ctx.Response.StartAsync(ct);
 
+        int bytesUntilMeta = metaInt;
+
         while (!ct.IsCancellationRequested)
         {
             // Force to resend metadata on next segment
@@ -692,7 +694,6 @@ public class SiriusXMPlayer : IDisposable
 
             icecastStreamer.StartHLSReader(segmentQueue.Writer, listener, channelChangedSource.Token, ct);
 
-            int bytesUntilMeta = metaInt;
             var receivedAnyData = false;
 
             try

@@ -88,8 +88,10 @@ namespace SXMPlayer.Tests
                 
                 // Set ADTS sync marker and frame size
                 frame[0] = 0xFF;
-                frame[1] = 0xF0;
-                frame[3] = (byte)((frameSize >> 11) & 0x03);
+                frame[1] = 0xF1;
+                frame[2] = 0x50;
+                frame[3] = 0x80; // channel_configuration = 2 (stereo)
+                frame[3] = (byte)((frame[3] & 0xFC) | ((frameSize >> 11) & 0x03));
                 frame[4] = (byte)((frameSize >> 3) & 0xFF);
                 frame[5] = (byte)((frameSize & 0x07) << 5);
                 
