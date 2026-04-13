@@ -159,7 +159,7 @@ public class SiriusXMPlayer : IDisposable
             .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
             {
                 MaxRetryAttempts = 3,
-                Delay = TimeSpan.FromSeconds(1),
+                Delay = TimeSpan.FromSeconds(10),
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
