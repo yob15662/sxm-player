@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Net.Http;
 using System.Threading;
 
 namespace SXMPlayer;
@@ -177,11 +178,31 @@ public sealed class ProgressTimerManager : IDisposable
         {
             return false;
         }
+        catch (Exception ex) when (IsTransientSendFailure(ex))
+        {
+            _logger.LogInformation(ex, "Transient error sending progress action; will retry on next interval");
+            return true;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error sending progress action");
             return true;
         }
+    }
+
+    private static bool IsTransientSendFailure(Exception ex)
+    {
+        if (ex is TaskCanceledException)
+        {
+            return true;
+        }
+
+        if (ex is HttpRequestException)
+        {
+            return true;
+        }
+
+        return ex.InnerException is HttpRequestException;
     }
 
     private async Task SendProgressAction(CancellationToken cancellationToken)

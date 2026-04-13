@@ -719,8 +719,7 @@ public class SiriusXMPlayer : IDisposable
             }
             catch (OperationCanceledException oex)
             {
-                // Expected when client disconnects
-                logger.LogWarning(oex, "Client disconnected");
+                logger.LogWarning(oex, "Icecast stream canceled for client {ClientIp}", ctx.Connection.RemoteIpAddress);
             }
             catch (Exception ex)
             {
