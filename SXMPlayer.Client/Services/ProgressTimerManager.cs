@@ -169,6 +169,12 @@ public sealed class ProgressTimerManager : IDisposable
             return false;
         }
 
+        if (!HasRequiredProgressContext())
+        {
+            _logger.LogWarning("Stopping progress timer - no current channel or nowPlaying id");
+            return false;
+        }
+
         try
         {
             await SendProgressAction(cancellationToken);
@@ -203,6 +209,14 @@ public sealed class ProgressTimerManager : IDisposable
         }
 
         return ex.InnerException is HttpRequestException;
+    }
+
+    private bool HasRequiredProgressContext()
+    {
+        var currentChannel = _metadataService.GetCurrentChannel();
+        var nowPlaying = _metadataService.GetNowPlaying();
+
+        return currentChannel?.Entity.Id is not null && nowPlaying?.id is not null;
     }
 
     private async Task SendProgressAction(CancellationToken cancellationToken)
@@ -243,9 +257,10 @@ public sealed class ProgressTimerManager : IDisposable
             position2 = new Position2 { AbsoluteTime = position.AbsoluteTime };
         }
 
-        if (currentChannel.Entity.Id is null || nowPlaying.id is null)
+        var channelId = currentChannel.Entity.Id;
+        var nowPlayingId = nowPlaying.id;
+        if (channelId is null || nowPlayingId is null)
         {
-            _logger.LogWarning("Cannot send progress action - no current channel or no nowPlaying data");
             return;
         }
 
@@ -258,8 +273,8 @@ public sealed class ProgressTimerManager : IDisposable
             {
                 Start = new()
                 {
-                    Source = new() { Type = type, Id = currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = nowPlaying.id },
+                    Source = new() { Type = type, Id = channelId },
+                    Item = new() { Type = itemType, Id = nowPlayingId },
                     Position = position2,
                     SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
                     LogicalClock = new() { Counter = _logicalClockCounter, Epoch = 0 }
@@ -272,8 +287,8 @@ public sealed class ProgressTimerManager : IDisposable
             {
                 Progress = new()
                 {
-                    Source = new() { Type = type, Id = currentChannel.Entity.Id },
-                    Item = new() { Type = itemType, Id = nowPlaying.id },
+                    Source = new() { Type = type, Id = channelId },
+                    Item = new() { Type = itemType, Id = nowPlayingId },
                     Position = position,
                     SourceTimestamp = DateTimeOffset.UtcNow.ToString("o"),
                     LogicalClock = new() { Counter = _logicalClockCounter, Epoch = 0 }

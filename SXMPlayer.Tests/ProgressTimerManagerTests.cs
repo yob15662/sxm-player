@@ -114,6 +114,49 @@ public class ProgressTimerManagerTests
         Assert.Equal(beforeStop, Volatile.Read(ref callCount));
     }
 
+    [Fact]
+    public async Task Stops_WhenProgressContextIdsAreMissing()
+    {
+        var sendCount = 0;
+        var hasListenerChecks = 0;
+        var channel = new ChannelItemData
+        {
+            Entity = new EntityData { Id = "channel-1", Type = "channel-linear" }
+        };
+
+        var session = CreateSession();
+        var metadataService = CreateMetadataService(
+            new NowPlayingData("channel-1", "artist", "song", null),
+            DateTimeOffset.UtcNow,
+            channel);
+
+        using var manager = new ProgressTimerManager(
+            new NullLogger<ProgressTimerManager>(),
+            () =>
+            {
+                Interlocked.Increment(ref hasListenerChecks);
+                return true;
+            },
+            metadataService,
+            session,
+            CancellationToken.None,
+            TimeSpan.FromMilliseconds(40),
+            (_, _) =>
+            {
+                Interlocked.Increment(ref sendCount);
+                return Task.FromResult(new Response15 { FailedActions = new List<object>() });
+            });
+
+        manager.Start(isChannelChanged: false);
+
+        await Task.Delay(160);
+        var checksAfterStop = Volatile.Read(ref hasListenerChecks);
+        await Task.Delay(160);
+
+        Assert.Equal(0, Volatile.Read(ref sendCount));
+        Assert.Equal(checksAfterStop, Volatile.Read(ref hasListenerChecks));
+    }
+
     private sealed class TestMetadataService : MetadataService
     {
         private readonly NowPlayingData _nowPlaying;
