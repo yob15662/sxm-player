@@ -175,7 +175,7 @@ public class HlsSegmentProducer
 
                                     byte[]? audioData = await FetchAndDecryptSegment(
                                         channelId, channelProvider, version, segmentName,
-                                        currentKey, currentIV, segmentSequence);
+                                        currentKey, currentIV, segmentSequence, combinedCt);
 
                                     if (audioData is not null)
                                     {
@@ -255,33 +255,57 @@ public class HlsSegmentProducer
         string segmentName,
         byte[]? currentKey,
         byte[]? currentIV,
-        long segmentSequence)
+        long segmentSequence,
+        CancellationToken cancellationToken)
     {
-        try
-        {
-            var currentChannelData = await channelProvider();
-            using var segStream = await _player.GetSegment(currentChannelData.Entity!.Id!, version, segmentName, null);
+        const int maxAttempts = 3;
 
-            if (currentKey is not null)
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
             {
+                var currentChannelData = await channelProvider();
+                using var segStream = await _player.GetSegment(currentChannelData.Entity!.Id!, version, segmentName, null);
                 using var ms = new MemoryStream();
-                await segStream.CopyToAsync(ms);
-                var cipher = ms.ToArray();
-                var iv = currentIV ?? HlsEncryptionService.BuildIVFromSequence(segmentSequence);
-                return HlsEncryptionService.DecryptAes128Cbc(cipher, currentKey, iv);
-            }
-            else
-            {
-                using var ms = new MemoryStream();
-                await segStream.CopyToAsync(ms);
+                await segStream.CopyToAsync(ms, cancellationToken);
+
+                if (currentKey is not null)
+                {
+                    var cipher = ms.ToArray();
+                    var iv = currentIV ?? HlsEncryptionService.BuildIVFromSequence(segmentSequence);
+                    return HlsEncryptionService.DecryptAes128Cbc(cipher, currentKey, iv);
+                }
+
                 return ms.ToArray();
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                var backoff = TimeSpan.FromMilliseconds(150 * attempt);
+                _logger.LogWarning(ex,
+                    "Retrying segment {SegmentName} for channel {ChannelId} (attempt {Attempt}/{MaxAttempts}) after transient fetch/decrypt error.",
+                    segmentName,
+                    channelId,
+                    attempt,
+                    maxAttempts);
+
+                await Task.Delay(backoff, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to fetch/decrypt segment {SegmentName} for channel {ChannelId} after {MaxAttempts} attempts.",
+                    segmentName,
+                    channelId,
+                    maxAttempts);
+                return null;
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error fetching/decrypting segment {segmentName}");
-            return null;
-        }
+
+        return null;
     }
 
     private async Task<(byte[]? key, byte[]? iv)> ParseEncryptionKeyAsync(string keyLine)

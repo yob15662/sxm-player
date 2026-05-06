@@ -1,6 +1,9 @@
 using System;
+using System.IO;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -15,6 +18,7 @@ public class IcyStreamWriter
     private readonly IcyMetadataBuilder _metadataBuilder;
     private readonly ILogger _logger;
     private readonly MetadataService? _metadataService;
+    private const int MaxWriteAttempts = 2;
 
     /// <summary>
     /// Gets or sets the maximum size (in bytes) of each HTTP write to the response body.
@@ -72,12 +76,12 @@ public class IcyStreamWriter
         while (remaining > 0)
         {
             int chunk = Math.Min(remaining, OutputChunkSize);
-            await context.Response.Body.WriteAsync(audioData.Slice(offset, chunk), cancellationToken);
+            await WriteToResponseWithRetryAsync(context, audioData.Slice(offset, chunk), cancellationToken);
             offset += chunk;
             remaining -= chunk;
         }
 
-        await context.Response.Body.FlushAsync(cancellationToken);
+        await FlushResponseWithDisconnectHandlingAsync(context, cancellationToken);
         return int.MaxValue; // No metadata tracking needed
     }
 
@@ -118,7 +122,7 @@ public class IcyStreamWriter
             }
             else if (firstBoundary >= audioRemaining)
             {
-                await context.Response.Body.FlushAsync(cancellationToken);
+                await FlushResponseWithDisconnectHandlingAsync(context, cancellationToken);
                 return bytesUntilNextMetadata;
             }
         }
@@ -128,20 +132,93 @@ public class IcyStreamWriter
             if (bytesUntilNextMetadata == 0)
             {
                 var meta = _metadataBuilder.BuildMetadataBlock(_metadataService?.GetNowPlaying());
-                await context.Response.Body.WriteAsync(meta, 0, meta.Length, cancellationToken);
+                await WriteToResponseWithRetryAsync(context, meta.AsMemory(), cancellationToken);
                 bytesUntilNextMetadata = metadataInterval;
                 continue;
             }
 
             int chunk = Math.Min(audioRemaining, Math.Min(bytesUntilNextMetadata, OutputChunkSize));
-            await context.Response.Body.WriteAsync(audioData.Slice(audioOffset, chunk), cancellationToken);
+            await WriteToResponseWithRetryAsync(context, audioData.Slice(audioOffset, chunk), cancellationToken);
 
             audioOffset += chunk;
             audioRemaining -= chunk;
             bytesUntilNextMetadata -= chunk;
         }
 
-        await context.Response.Body.FlushAsync(cancellationToken);
+        await FlushResponseWithDisconnectHandlingAsync(context, cancellationToken);
         return bytesUntilNextMetadata;
+    }
+
+    private async Task WriteToResponseWithRetryAsync(HttpContext context, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= MaxWriteAttempts; attempt++)
+        {
+            try
+            {
+                await context.Response.Body.WriteAsync(data, cancellationToken);
+                return;
+            }
+            catch (Exception ex) when (IsDisconnectException(ex))
+            {
+                throw CreateDisconnectCanceledException(cancellationToken, ex);
+            }
+            catch (Exception ex) when (attempt < MaxWriteAttempts)
+            {
+                _logger.LogDebug(ex, "Transient response write failure; retrying attempt {Attempt}/{MaxAttempts}.", attempt, MaxWriteAttempts);
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    private async Task FlushResponseWithDisconnectHandlingAsync(HttpContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await context.Response.Body.FlushAsync(cancellationToken);
+        }
+        catch (Exception ex) when (IsDisconnectException(ex))
+        {
+            throw CreateDisconnectCanceledException(cancellationToken, ex);
+        }
+    }
+
+    private static OperationCanceledException CreateDisconnectCanceledException(CancellationToken cancellationToken, Exception inner)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new OperationCanceledException(cancellationToken);
+        }
+
+        return new OperationCanceledException("Client disconnected while writing Icecast response.", inner, cancellationToken);
+    }
+
+    private static bool IsDisconnectException(Exception ex)
+    {
+        if (ex is IOException)
+        {
+            return true;
+        }
+
+        if (ex is ConnectionAbortedException)
+        {
+            return true;
+        }
+
+        if (ex is ConnectionResetException)
+        {
+            return true;
+        }
+
+        if (ex is SocketException)
+        {
+            return true;
+        }
+
+        if (ex.InnerException is not null)
+        {
+            return IsDisconnectException(ex.InnerException);
+        }
+
+        return false;
     }
 }

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.IO;
+using System.Net.Sockets;
 using System.Threading.Tasks;
 
 namespace SXMPlayer.Tests;
@@ -249,6 +251,71 @@ public class IcyStreamWriterTests
                 metadataInterval: 8162,
                 bytesUntilNextMetadata: 8162,
                 cts.Token));
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenFirstWriteFailsTransiently_RetriesAndSucceeds()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+        var data = new byte[] { 1, 2, 3, 4, 5 };
+
+        var flakyStream = new ControlledFailureStream(new InvalidOperationException("transient"));
+        var mockContext = CreateMockHttpContext();
+        mockContext.Setup(c => c.Response.Body).Returns(flakyStream);
+
+        await writer.WriteAsync(
+            new ReadOnlyMemory<byte>(data),
+            mockContext.Object,
+            injectMetadata: false,
+            metadataInterval: 8162,
+            bytesUntilNextMetadata: 8162,
+            CancellationToken.None);
+
+        Assert.Equal(data, flakyStream.ToArray());
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenWriteThrowsIOException_ThrowsOperationCanceledException()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var failingStream = new ControlledFailureStream(new IOException("connection dropped"));
+        var mockContext = CreateMockHttpContext();
+        mockContext.Setup(c => c.Response.Body).Returns(failingStream);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            writer.WriteAsync(
+                new ReadOnlyMemory<byte>(new byte[] { 1, 2, 3 }),
+                mockContext.Object,
+                injectMetadata: false,
+                metadataInterval: 8162,
+                bytesUntilNextMetadata: 8162,
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task WriteAsync_WhenWriteThrowsSocketException_ThrowsOperationCanceledException()
+    {
+        var logger = CreateMockLogger();
+        var builder = CreateMetadataBuilder();
+        var writer = new IcyStreamWriter(builder, logger.Object);
+
+        var failingStream = new ControlledFailureStream(new SocketException((int)SocketError.NetworkUnreachable));
+        var mockContext = CreateMockHttpContext();
+        mockContext.Setup(c => c.Response.Body).Returns(failingStream);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            writer.WriteAsync(
+                new ReadOnlyMemory<byte>(new byte[] { 1, 2, 3 }),
+                mockContext.Object,
+                injectMetadata: false,
+                metadataInterval: 8162,
+                bytesUntilNextMetadata: 8162,
+                CancellationToken.None));
     }
 
     [Fact]
@@ -727,5 +794,20 @@ public class IcyStreamWriterTests
         Assert.Equal(0, written[0]);
         Assert.Equal(audioData, written.AsSpan(1).ToArray());
         Assert.Equal(512 - audioData.Length, remainingBudget);
+    }
+
+    private sealed class ControlledFailureStream(params Exception[] writeFailures) : MemoryStream
+    {
+        private readonly Queue<Exception> _writeFailures = new(writeFailures);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_writeFailures.Count > 0)
+            {
+                throw _writeFailures.Dequeue();
+            }
+
+            return base.WriteAsync(buffer, cancellationToken);
+        }
     }
 }

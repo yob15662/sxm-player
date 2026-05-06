@@ -20,6 +20,7 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
 });
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Server.Kestrel", LogLevel.Error);
 
 // Read password from file specified by environment variable and override configuration
 var passwordFile = Environment.GetEnvironmentVariable("SXM_PASSWORD_FILE");
