@@ -665,7 +665,8 @@ public class SiriusXMPlayer : IDisposable
         var np = GetNowPlaying();
         if (np is not null)
         {
-            ctx.Response.Headers["icy-name"] = $"Sirius XM - {current.Entity.ChannelName}";
+            var sanitizedChannelName = IcyHeaderSanitizer.SanitizeHeaderValue(current.Entity.ChannelName);
+            ctx.Response.Headers["icy-name"] = $"Sirius XM - {sanitizedChannelName}";
         }        // Conservative headers for legacy clients
         ctx.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
         ctx.Response.Headers["Pragma"] = "no-cache";
