@@ -262,34 +262,6 @@ public class SiriusXMPlayer : IDisposable
         }
     }
 
-    private void EnsurePrimaryExists(SXMListener? client)
-    {
-        if (client != null)
-        {
-            lock (clients)
-            {
-                if (!clients.Any(c => c.IsPrimary))
-                {
-                    client.IsPrimary = true;
-                }
-            }
-        }
-    }
-
-    private void SetPrimaryClient(SXMListener? client)
-    {
-        if (client != null)
-        {
-            lock (clients)
-            {
-                foreach (var c in clients)
-                {
-                    c.IsPrimary = c == client;
-                }
-            }
-        }
-    }
-
     private async Task<ChannelItemData> SetCurrentChannel(string channelId)
     {
         var (currentChannel, hasChanged) = await metadataService.SetCurrentChannelAsync(channelId);
@@ -410,14 +382,6 @@ public class SiriusXMPlayer : IDisposable
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Safari", "537.36"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Edg", "101.0.1193.0"));
     }
-
-    private static string[] SplitLines(string? res)
-    {
-        return res.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-    }
-
-
-
 
     private async Task<HttpResponseMessage?> GetHttpResponseMessage(string url, Dictionary<string, string> parameters)
     {
@@ -662,8 +626,7 @@ public class SiriusXMPlayer : IDisposable
             ctx.Response.Headers["icy-metaint"] = metaInt.ToString();
 
         }
-        var np = GetNowPlaying();
-        if (np is not null)
+        if (current is not null)
         {
             var sanitizedChannelName = IcyHeaderSanitizer.SanitizeHeaderValue(current.Entity.ChannelName);
             ctx.Response.Headers["icy-name"] = $"Sirius XM - {sanitizedChannelName}";
