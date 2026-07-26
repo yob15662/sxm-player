@@ -6,7 +6,7 @@ namespace SXMPlayer;
 
 public sealed class ProgressTimerManager : IDisposable
 {
-    private static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(30);
 
     private readonly ILogger<ProgressTimerManager> _logger;
     private readonly Func<bool> _hasActiveListeners;

@@ -364,7 +364,7 @@ public class SiriusXMPlayer : IDisposable
 
     private async Task SetNowPlayingFromSegment(SXMSegment segment, bool retry = true)
     {
-        await metadataService.SetNowPlayingFromSegment(segment, mqttServer, retry);
+        await metadataService.SetNowPlayingFromSegment(segment, retry);
     }
 
     public virtual async Task<byte[]> GetDecryptionKey(string guid)
@@ -618,13 +618,12 @@ public class SiriusXMPlayer : IDisposable
         //{
         //    injectMeta = true;
         //}
-        int metaInt = injectMeta ? (ICYMetaInt ?? ICY_META_BLOCK) : int.MaxValue;
+        int? metaInt = injectMeta ? (ICYMetaInt ?? ICY_META_BLOCK) : null;
 
-        if (injectMeta)
+        if (injectMeta && metaInt.HasValue)
         {
-            logger.LogInformation($"Injecting ICY metadata every {metaInt} bytes for client {ctx.Connection.RemoteIpAddress} (UA: {userAgent})");
-            ctx.Response.Headers["icy-metaint"] = metaInt.ToString();
-
+            logger.LogInformation($"Injecting ICY metadata every {metaInt.Value} bytes for client {ctx.Connection.RemoteIpAddress} (UA: {userAgent})");
+            ctx.Response.Headers["icy-metaint"] = metaInt.Value.ToString();
         }
         if (current is not null)
         {
@@ -643,7 +642,7 @@ public class SiriusXMPlayer : IDisposable
         ctx.Response.ContentType = injectMeta ? "audio/aacp" : "audio/aac";
         await ctx.Response.StartAsync(ct);
 
-        int bytesUntilMeta = metaInt;
+        int bytesUntilMeta = metaInt ?? int.MaxValue;
 
         while (!ct.IsCancellationRequested)
         {
@@ -671,7 +670,7 @@ public class SiriusXMPlayer : IDisposable
                         // Data is already decrypted by the producer
                         if (item.AudioData is not null)
                         {
-                            bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(item.AudioData.Value, ctx, injectMeta, metaInt, bytesUntilMeta, ct);
+                            bytesUntilMeta = await icecastStreamer.WriteWithIcyAsync(item.AudioData.Value, ctx, injectMeta, metaInt ?? int.MaxValue, bytesUntilMeta, ct);
                             listener.LastActivity = DateTimeOffset.Now;
                         }
                         else

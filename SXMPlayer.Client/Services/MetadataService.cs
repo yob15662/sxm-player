@@ -28,6 +28,7 @@ public class MetadataService : IDisposable
     // Cuts management
     private List<MetadataItem>? allCutsCurrentChannel;
     private string? allCutsChannelInfo;
+    private DateTimeOffset? _allCutsLastRefresh;
     private readonly object _allCutsLock = new object();
     private int cutsRefreshed;
 
@@ -123,6 +124,7 @@ public class MetadataService : IDisposable
         {
             allCutsChannelInfo = channel;
             allCutsCurrentChannel = liveUpdateData?.Items?.ToList();
+            _allCutsLastRefresh = DateTimeOffset.Now;
         }
     }
 
@@ -140,9 +142,43 @@ public class MetadataService : IDisposable
         bool tryRefresh = true)
     {
         List<MetadataItem>? currentCuts;
+        string? cutsChannel;
+        DateTimeOffset? cutsAge;
         lock (_allCutsLock)
         {
             currentCuts = allCutsCurrentChannel;
+            cutsChannel = allCutsChannelInfo;
+            cutsAge = _allCutsLastRefresh;
+        }
+
+        // Invalidate cuts if they belong to a different channel
+        bool channelMismatch = currentCuts is not null && cutsChannel != channelId;
+        // Proactively refresh if cuts are older than 2 minutes to keep metadata current
+        bool isStale = currentCuts is not null && cutsAge is not null
+            && DateTimeOffset.Now - cutsAge.Value > TimeSpan.FromMinutes(2);
+
+        if (channelMismatch || isStale)
+        {
+            if (tryRefresh)
+            {
+                if (channelMismatch)
+                {
+                    logger.LogInformation("Cuts channel mismatch (have={HaveChannel}, need={NeedChannel}) - refreshing", cutsChannel, channelId);
+                    cutsRefreshed = 0; // Reset counter on channel change
+                }
+                else
+                {
+                    logger.LogDebug("Cuts data is stale ({Age:F0}s old) - refreshing", (DateTimeOffset.Now - cutsAge!.Value).TotalSeconds);
+                }
+                await RefreshAllCuts(channelId);
+                cutsRefreshed++;
+                return await GetNowPlaying(channelId, ts, false);
+            }
+            // Already tried refresh, fall through with whatever we have
+            lock (_allCutsLock)
+            {
+                currentCuts = allCutsCurrentChannel;
+            }
         }
 
         if (ts is null || currentCuts is null)
@@ -155,7 +191,7 @@ public class MetadataService : IDisposable
             }
             var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
             logger.LogWarning($"no cuts or no current channel - channel={channelId} ts={ts}");
-            return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
+            return (channelInfo.Entity.ChannelName ?? "-", channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
         }
 
         var utcTime = ts.Value.ToUniversalTime();
@@ -170,7 +206,7 @@ public class MetadataService : IDisposable
             {
                 logger.LogWarning($"Too many cuts refreshes - giving up - channel={channelId} ts={ts?.ToLocalTime()}");
                 var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
-                return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
+                return (channelInfo.Entity.ChannelName ?? "-", channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
             }
             await RefreshAllCuts(channelId);
             cutsRefreshed++;
@@ -213,7 +249,7 @@ public class MetadataService : IDisposable
         {
             var channelInfo = (await GetChannelsAsync()).First(c => c.Entity.Id == channelId);
             logger.LogWarning($"Invalid now playing data - channel={channelId} ts={ts?.ToLocalTime()} - first={firstCut?.StartTime.ToLocalTime()} - last={lastCut?.StartTime.ToLocalTime()}");
-            return (channelInfo.Entity.ChannelName, channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
+            return (channelInfo.Entity.ChannelName ?? "-", channelInfo.Entity.Texts?.Description?.Default ?? "-", null);
         }
     }
 
@@ -222,7 +258,6 @@ public class MetadataService : IDisposable
     /// </summary>
     public async Task SetNowPlayingFromSegment(
         SXMSegment segment,
-        string? mqttServer,
         bool retry = true)
     {
         _audioOriginalTS = null;
@@ -238,11 +273,11 @@ public class MetadataService : IDisposable
             
             if (trackInfo != null && channelName != null)
             {
-                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName, trackInfo.Value.artist, trackInfo.Value.title, trackInfo.Value.id);
+                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName ?? "-", trackInfo.Value.artist, trackInfo.Value.title, trackInfo.Value.id);
             }
             else if (channelName != null)
             {
-                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName, "-", "-", null);
+                _nowPlaying = new NowPlayingData(channelName.Entity.ChannelName ?? "-", "-", "-", null);
             }
         }
         else
@@ -250,7 +285,7 @@ public class MetadataService : IDisposable
             if (retry)
             {
                 await RefreshAllCuts(segment.stream.channel);
-                await SetNowPlayingFromSegment(segment, mqttServer, false);
+                await SetNowPlayingFromSegment(segment, false);
                 return;
             }
             logger.LogWarning($"Cannot find {segment.segment} in playlistMap");
@@ -260,14 +295,13 @@ public class MetadataService : IDisposable
         if (_nowPlaying != prevNowPlaying || _lastNowPlayingListenersUpdate is null)
         {
             _nowPlayingListener?.Invoke(_nowPlaying!);
-            if (mqttServer != null && _nowPlaying != null)
-            {
-                _lastNowPlayingListenersUpdate = DateTimeOffset.Now;
-            }
+            _lastNowPlayingListenersUpdate = DateTimeOffset.Now;
         }
-        
-        if (_nowPlaying != null && _lastNowPlayingListenersUpdate < DateTimeOffset.Now.AddMinutes(-2))
+        else if (_nowPlaying != null && _lastNowPlayingListenersUpdate < DateTimeOffset.Now.AddSeconds(-30))
         {
+            // Re-notify listeners periodically even if the track hasn't changed,
+            // so clients that joined mid-song or missed an update stay current.
+            _nowPlayingListener?.Invoke(_nowPlaying);
             _lastNowPlayingListenersUpdate = DateTimeOffset.Now;
         }
         
@@ -288,7 +322,9 @@ public class MetadataService : IDisposable
         {
             allCutsChannelInfo = channelId;
             allCutsCurrentChannel = items;
+            _allCutsLastRefresh = DateTimeOffset.Now;
         }
+        cutsRefreshed = 0;
     }
 
     public async Task<List<ChannelItemData>> GetChannelsAsync()
