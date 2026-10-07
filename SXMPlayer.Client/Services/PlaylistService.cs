@@ -15,9 +15,14 @@ namespace SXMPlayer;
 /// <summary>
 /// Handles fetching and rewriting HLS playlists, time mapping, and stream metadata cache.
 /// </summary>
-public class PlaylistService
+public class PlaylistService : IStreamTimeMap
 {
     private readonly ILogger<PlaylistService> _logger;
+    private readonly ICurrentChannelService _currentChannel;
+    private readonly IStreamTuner _tuner;
+    private readonly IStreamHttpClient _http;
+    private readonly INowPlayingProvider _nowPlaying;
+    private readonly PlayerState _playerState;
 
     private readonly Dictionary<string, DateTimeOffset?> _streamTimeMap = new();
     private readonly ConcurrentDictionary<string, SXMStream> _sxmStreams = new();
@@ -28,9 +33,20 @@ public class PlaylistService
     private static readonly Regex ExtRegex = new("#EXT-X-PROGRAM-DATE-TIME:(.*)", RegexOptions.Compiled);
     private static readonly Regex ExtInfRegex = new(@"#EXTINF:(?<duration>[^,]+)(,(?<title>.*))?", RegexOptions.Compiled);
 
-    public PlaylistService(ILogger<PlaylistService> logger)
+    public PlaylistService(
+        ILogger<PlaylistService> logger,
+        ICurrentChannelService currentChannel,
+        IStreamTuner tuner,
+        IStreamHttpClient http,
+        INowPlayingProvider nowPlaying,
+        PlayerState playerState)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _currentChannel = currentChannel ?? throw new ArgumentNullException(nameof(currentChannel));
+        _tuner = tuner ?? throw new ArgumentNullException(nameof(tuner));
+        _http = http ?? throw new ArgumentNullException(nameof(http));
+        _nowPlaying = nowPlaying ?? throw new ArgumentNullException(nameof(nowPlaying));
+        _playerState = playerState ?? throw new ArgumentNullException(nameof(playerState));
     }
 
     public IReadOnlyDictionary<string, DateTimeOffset?> StreamTimeMap => _streamTimeMap;
@@ -137,15 +153,10 @@ public class PlaylistService
         string channelId,
         string currentId,
         string? alias,
-        bool useCache,
-        ChannelItemData? currentChannel,
-        Func<string, Task> setCurrentChannel,
-        Func<string, Task<string>> getProxyPlaylistUrl,
-        Func<string, Task<HttpResponseMessage?>> getHttpResponse,
-        Func<string, DateTimeOffset?, Task<(string artist, string title, string? id)?>> getNowPlaying,
-        NowPlayingData? nowPlayingFallback)
+        bool useCache)
     {
         var start = DateTimeOffset.UtcNow;
+        var currentChannel = await _currentChannel.GetCurrentChannelAsync();
         _logger.LogDebug("GetStreamPlaylistAsync start - channelId={ChannelId} currentId={CurrentId} alias={Alias} useCache={UseCache} hasCurrentChannel={HasCurrentChannel} hasCachedPlaylist={HasCachedPlaylist}",
             channelId,
             currentId,
@@ -174,11 +185,12 @@ public class PlaylistService
 
         try
         {
-            await setCurrentChannel(channelId);
-            var url = await getProxyPlaylistUrl(channelId);
+            var nowPlayingFallback = _nowPlaying.GetNowPlaying();
+            await _currentChannel.SetCurrentChannelAsync(channelId);
+            var url = await GetProxyPlaylistUrlAsync(channelId, useSecondary: _playerState.UseSecondaryStreamUrl);
             _logger.LogDebug("Fetching source playlist - channelId={ChannelId} url={Url}", channelId, url);
 
-            var res = await getHttpResponse(url);
+            var res = await _http.GetAsync(url);
             var allLines = await res!.Content.ReadAsStringAsync();
             string[] lines = SplitLines(allLines);
             ExtractTimeMap(lines);
@@ -212,7 +224,7 @@ public class PlaylistService
 
                     if (StreamTimeMap.TryGetValue(segmentName, out var ts) && ts is not null)
                     {
-                        var info = await getNowPlaying(channelId, ts);
+                        var info = await _nowPlaying.GetNowPlaying(channelId, ts);
                         if (info is not null)
                         {
                             if (info.Value.id is null)
@@ -365,11 +377,9 @@ public class PlaylistService
     /// </param>
     public async Task<string> GetProxyPlaylistUrlAsync(
         string channelId,
-        Func<string, Task<Streams>> tuneSource,
-        Func<string, Task<HttpResponseMessage?>> getHttpResponse,
         bool useSecondary = false)
     {
-        Streams stream = await tuneSource(channelId);
+        Streams stream = await _tuner.TuneSourceAsync(channelId);
         var urls = stream.Urls ?? throw new InvalidOperationException($"No stream URLs returned for channel {channelId}");
 
         var selectedUrl = useSecondary
@@ -382,7 +392,7 @@ public class PlaylistService
         }
 
         var bandwidths = selectedUrl.Url;
-        var res = await getHttpResponse(bandwidths);
+        var res = await _http.GetAsync(bandwidths);
         var allLines = await res!.Content.ReadAsStringAsync();
         string[] lines = SplitLines(allLines);
         var topBandwidth = SelectHighestBandwidthVariant(lines);

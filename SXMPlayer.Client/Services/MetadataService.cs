@@ -7,12 +7,12 @@ namespace SXMPlayer;
 /// <summary>
 /// Service responsible for managing now playing information and metadata from SiriusXM streams.
 /// </summary>
-public class MetadataService : IDisposable
+public class MetadataService : IDisposable, ICurrentChannelService, INowPlayingProvider
 {
     private readonly ILogger<MetadataService> logger;
     private readonly APISession session;
     private readonly SxmSessionService sxmSessionService;
-    private readonly PlaylistService playlistService;
+    private IStreamTimeMap? _streamTimeMap;
     private readonly CancellationToken cancellationToken;
     private readonly string currentChannelFile;
 
@@ -42,16 +42,24 @@ public class MetadataService : IDisposable
         ILogger<MetadataService> logger,
         APISession session,
         SxmSessionService sxmSessionService,
-        PlaylistService playlistService,
         string currentChannelFile,
         CancellationToken cancellationToken)
     {
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.sxmSessionService = sxmSessionService ?? throw new ArgumentNullException(nameof(sxmSessionService));
-        this.playlistService = playlistService ?? throw new ArgumentNullException(nameof(playlistService));
         this.currentChannelFile = currentChannelFile ?? throw new ArgumentNullException(nameof(currentChannelFile));
         this.cancellationToken = cancellationToken;
+    }
+
+    /// <summary>
+    /// Wires the read-only stream time map (implemented by <see cref="PlaylistService"/>) after
+    /// both singletons exist. Called once by the composition root as the final wiring step; the
+    /// null guard catches a mis-ordered composition root at startup.
+    /// </summary>
+    public void SetStreamTimeMap(IStreamTimeMap streamTimeMap)
+    {
+        _streamTimeMap = streamTimeMap ?? throw new ArgumentNullException(nameof(streamTimeMap));
     }
 
     /// <summary>
@@ -265,7 +273,13 @@ public class MetadataService : IDisposable
         var prevNowPlaying = _nowPlaying;
         _nowPlaying = null;
         
-        if (playlistService.StreamTimeMap.TryGetValue(segment.segment, out var audioTS))
+        if (_streamTimeMap is null)
+        {
+            logger.LogDebug("Stream time map not wired yet; skipping now-playing update for segment {Segment}", segment.segment);
+            return;
+        }
+
+        if (_streamTimeMap.StreamTimeMap.TryGetValue(segment.segment, out var audioTS))
         {
             _audioOriginalTS = audioTS;
             var trackInfo = await GetNowPlaying(segment.stream.channel, _audioOriginalTS);
@@ -367,7 +381,7 @@ public class MetadataService : IDisposable
         return _currentChannel;
     }
 
-    public async Task<(ChannelItemData channel, bool hasChanged)> SetCurrentChannelAsync(string channelId)
+    public async Task<(ChannelItemData channel, bool hasChanged)> SetCurrentChannelCore(string channelId)
     {
         var hasChanged = _currentChannel?.Entity.Id != channelId;
 
@@ -382,6 +396,34 @@ public class MetadataService : IDisposable
 
         return (_currentChannel, hasChanged);
     }
+
+    /// <summary>
+    /// Single raise site for <see cref="ChannelChanged"/>. Sets the current channel and, when it
+    /// actually changed, raises the event (awaited sequentially so the sole subscriber's
+    /// side effects complete before the caller continues).
+    /// </summary>
+    public async Task SetCurrentChannelAsync(string channelId)
+    {
+        var (_, hasChanged) = await SetCurrentChannelCore(channelId);
+        if (hasChanged)
+        {
+            var handler = ChannelChanged;
+            if (handler is not null)
+            {
+                // Single intended subscriber (SiriusXMPlayer); enumerate defensively so a
+                // mis-wired second handler is awaited sequentially rather than silently dropped.
+                foreach (var d in handler.GetInvocationList().Cast<Func<string, Task>>())
+                {
+                    await d(channelId);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Raised exactly once per genuine channel change. Single-subscriber (<see cref="SiriusXMPlayer"/>).
+    /// </summary>
+    public event Func<string, Task>? ChannelChanged;
 
     public void Dispose()
     {

@@ -60,14 +60,12 @@ namespace SXMPlayer.Tests
             // Create actual instances for MetadataService dependencies (not used in this test anyway)
             var apiSession = new APISession("https://test.example.com", _loggerFactoryMock.Object, "", "user", "pass");
             var sxmSessionService = new SxmSessionService(apiSession, Mock.Of<ILogger<SxmSessionService>>(), new CancellationTokenSource(), null);
-            var playlistService = new PlaylistService(Mock.Of<ILogger<PlaylistService>>());
 
             // Create a mock MetadataService
             var metadataServiceMock = new Mock<MetadataService>(
                 Mock.Of<ILogger<MetadataService>>(),
                 apiSession,
                 sxmSessionService,
-                playlistService,
                 string.Empty, // currentChannelFile parameter
                 CancellationToken.None) { CallBase = false };
             metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
@@ -209,14 +207,12 @@ namespace SXMPlayer.Tests
             // Create actual instances for MetadataService dependencies (not used in this test anyway)
             var apiSession = new APISession("https://test.example.com", _loggerFactoryMock.Object, "", "user", "pass");
             var sxmSessionService = new SxmSessionService(apiSession, Mock.Of<ILogger<SxmSessionService>>(), new CancellationTokenSource(), null);
-            var playlistService = new PlaylistService(Mock.Of<ILogger<PlaylistService>>());
 
             // Create a mock MetadataService that returns now playing data
             var metadataServiceMock = new Mock<MetadataService>(
                 Mock.Of<ILogger<MetadataService>>(),
                 apiSession,
                 sxmSessionService,
-                playlistService,
                 string.Empty, // currentChannelFile parameter
                 CancellationToken.None) { CallBase = false };
             metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));

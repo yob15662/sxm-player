@@ -15,13 +15,11 @@ public class ProgressTimerManagerTests
         var session = CreateSession();
         var cts = new CancellationTokenSource();
         var sxmSessionService = new SxmSessionService(session, NullLogger<SxmSessionService>.Instance, cts, null);
-        var playlistService = new PlaylistService(NullLogger<PlaylistService>.Instance);
         var currentChannelFile = Path.Combine(Path.GetTempPath(), $"currentChannel.{Guid.NewGuid()}.json");
         return new TestMetadataService(
             NullLogger<MetadataService>.Instance,
             session,
             sxmSessionService,
-            playlistService,
             currentChannelFile,
             cts.Token,
             nowPlaying,
@@ -167,13 +165,12 @@ public class ProgressTimerManagerTests
             ILogger<MetadataService> logger,
             APISession session,
             SxmSessionService sxmSessionService,
-            PlaylistService playlistService,
             string currentChannelFile,
             CancellationToken cancellationToken,
             NowPlayingData nowPlaying,
             DateTimeOffset audioTs,
             ChannelItemData currentChannel)
-            : base(logger, session, sxmSessionService, playlistService, currentChannelFile, cancellationToken)
+            : base(logger, session, sxmSessionService, currentChannelFile, cancellationToken)
         {
             _nowPlaying = nowPlaying;
             _audioTs = audioTs;

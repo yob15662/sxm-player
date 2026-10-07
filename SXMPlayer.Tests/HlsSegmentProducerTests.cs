@@ -26,7 +26,13 @@ public class HlsSegmentProducerTests
     }
 
     private static PlaylistService CreatePlaylistService()
-        => new PlaylistService(new Mock<ILogger<PlaylistService>>().Object);
+        => new PlaylistService(
+            new Mock<ILogger<PlaylistService>>().Object,
+            Mock.Of<ICurrentChannelService>(),
+            Mock.Of<IStreamTuner>(),
+            Mock.Of<IStreamHttpClient>(),
+            Mock.Of<INowPlayingProvider>(),
+            new PlayerState());
 
     // Stub using the test-only constructor so GetSegment / RequestPlaylistRefresh can be
     // overridden without wiring up the full player dependency graph. GetSegment always

@@ -92,7 +92,7 @@ public class SiriusXMPlayer : IDisposable
     private readonly HlsEncryptionService encryptionService;
     private readonly PlaylistService playlistService;
     private readonly IcecastStreamer icecastStreamer;
-    private readonly ResiliencePipeline<HttpResponseMessage> httpRetryPipeline;
+    private readonly IStreamHttpClient streamHttpClient;
     private readonly MetadataService metadataService;
     private readonly ProgressTimerManager progressTimerManager;
 
@@ -113,7 +113,7 @@ public class SiriusXMPlayer : IDisposable
         sxmSessionService = null!;
         encryptionService = null!;
         icecastStreamer = null!;
-        httpRetryPipeline = null!;
+        streamHttpClient = null!;
         metadataService = null!;
         progressTimerManager = null!;
     }
@@ -163,15 +163,32 @@ public class SiriusXMPlayer : IDisposable
 
         // init services
         encryptionService = new HlsEncryptionService(session, logger);
-        playlistService = new PlaylistService(loggerFactory.CreateLogger<PlaylistService>());
+        var streamHttpClient = new StreamHttpClient(
+            session,
+            tokenSource,
+            loggerFactory.CreateLogger<StreamHttpClient>());
+        this.streamHttpClient = streamHttpClient;
         metadataService = new MetadataService(
             loggerFactory.CreateLogger<MetadataService>(),
             session,
             sxmSessionService,
-            playlistService,
             currentChannelFile,
             tokenSource.Token);
         metadataService.StartTimeoutHandler();
+
+        var streamTuner = new StreamTuner(
+            sxmSessionService,
+            session,
+            metadataService,
+            loggerFactory.CreateLogger<StreamTuner>(),
+            tokenSource);
+        playlistService = new PlaylistService(
+            loggerFactory.CreateLogger<PlaylistService>(),
+            metadataService,     // ICurrentChannelService
+            streamTuner,         // IStreamTuner
+            streamHttpClient,    // IStreamHttpClient
+            metadataService,     // INowPlayingProvider
+            playerState);        // PlayerState
 
         progressTimerManager = new ProgressTimerManager(
             loggerFactory.CreateLogger<ProgressTimerManager>(),
@@ -183,25 +200,10 @@ public class SiriusXMPlayer : IDisposable
         // pass a provider for now-playing into IcecastStreamer
         icecastStreamer = new IcecastStreamer(logger, metadataService, this);
 
-        // Configure Polly resilience pipeline for HTTP retries
-        httpRetryPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-            .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
-            {
-                MaxRetryAttempts = 3,
-                Delay = TimeSpan.FromSeconds(10),
-                BackoffType = DelayBackoffType.Exponential,
-                UseJitter = true,
-                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                    .HandleResult(response => !response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Forbidden && response.StatusCode != System.Net.HttpStatusCode.NotFound)
-                    .Handle<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
-                    .Handle<HttpRequestException>(),
-                OnRetry = args =>
-                {
-                    logger.LogWarning($"HTTP request retry attempt {args.AttemptNumber} after {args.RetryDelay.TotalSeconds:F1}s delay. Outcome: {args.Outcome.Exception?.Message ?? args.Outcome.Result?.StatusCode.ToString()}");
-                    return ValueTask.CompletedTask;
-                }
-            })
-            .Build();
+        // Final wiring step: wire the reverse read-only edge (breaks the construction cycle),
+        // then subscribe exactly once to the channel-change signal.
+        metadataService.SetStreamTimeMap(playlistService);
+        metadataService.ChannelChanged += OnChannelChanged;
     }
 
     public void Dispose()
@@ -259,21 +261,7 @@ public class SiriusXMPlayer : IDisposable
 
         try
         {
-            var playlist = await playlistService.GetStreamPlaylistAsync(
-                channelId,
-                CURRENT_ID,
-                alias,
-                useCache,
-                currentChannel,
-                async selectedChannelId => await SetCurrentChannel(selectedChannelId),
-                async selectedChannelId => await playlistService.GetProxyPlaylistUrlAsync(
-                    selectedChannelId,
-                    selected => TuneSource(selected),
-                    async url => await GetHttpResponseMessage(url, getQueryParameters()),
-                    useSecondary: playerState.UseSecondaryStreamUrl),
-                async url => await GetHttpResponseMessage(url, getQueryParameters()),
-                async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts),
-                metadataService.GetNowPlaying());
+            var playlist = await playlistService.GetStreamPlaylistAsync(channelId, CURRENT_ID, alias, useCache);
 
             avgSegmentDuration = playlistService.AverageSegmentDuration;
             logger.LogDebug("GetStreamPlaylist completed - channelId={ChannelId} playlistLength={PlaylistLength} avgSegmentDuration={AvgSegmentDuration} elapsedMs={ElapsedMs:F2}",
@@ -292,21 +280,18 @@ public class SiriusXMPlayer : IDisposable
         }
     }
 
-    private async Task<ChannelItemData> SetCurrentChannel(string channelId)
+    // Single subscriber to MetadataService.ChannelChanged (Func<string, Task> shape; NOT async
+    // void / EventHandler). Reproduces the former SetCurrentChannel hasChanged side effects in
+    // the same order: the event only fires on a genuine change, so the hasChanged guard is implicit.
+    private Task OnChannelChanged(string channelId)
     {
-        var (currentChannel, hasChanged) = await metadataService.SetCurrentChannelAsync(channelId);
-
-        if (hasChanged)
-        {
-            logger.LogInformation($"Setting current channel to {channelId}");
-            progressTimerManager.MarkChannelChanged();
-            ResetStreamUrlFallback();
-            channelChangedSource.Cancel();
-            channelChangedSource = new CancellationTokenSource();
-            // Cuts will refresh on next metadata request
-        }
-
-        return currentChannel;
+        logger.LogInformation($"Setting current channel to {channelId}");
+        progressTimerManager.MarkChannelChanged();
+        ResetStreamUrlFallback();
+        channelChangedSource.Cancel();
+        channelChangedSource = new CancellationTokenSource();
+        // Cuts will refresh on next metadata request
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -396,8 +381,6 @@ public class SiriusXMPlayer : IDisposable
             {
                 _ = await playlistService.GetProxyPlaylistUrlAsync(
                     channelId,
-                    selected => TuneSource(selected),
-                    async url => await GetHttpResponseMessage(url, getQueryParameters()),
                     useSecondary: playerState.UseSecondaryStreamUrl);
             }
             catch { }
@@ -425,11 +408,10 @@ public class SiriusXMPlayer : IDisposable
         //AAC_Data/{channel:regex(.*)}/{stream:regex(.*)}/{name:regex(.*\\.aac)}
         //var currentTrack = await GetNowPlaying(channel, ts);
         var url = $"{stream.path}{version}/{segmentId}?CMDC=";
-        var parameters = getQueryParameters();
 
         try
         {
-            var output = await GetHttpResponseMessage(url, parameters);
+            var output = await streamHttpClient.GetAsync(url);
             // read output to byte array
             if (output != null)
             {
@@ -470,47 +452,6 @@ public class SiriusXMPlayer : IDisposable
         return await encryptionService.GetDecryptionKey(guid);
     }
 
-    private static void ConfigureRequest(HttpRequestMessage request)
-    {
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Mozilla", "5.0"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("(Windows NT 10.0; Win64; x64)"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("AppleWebKit", "537.36"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("(KHTML, like Gecko)"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Chrome", "101.0.4911.0"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Safari", "537.36"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Edg", "101.0.1193.0"));
-    }
-
-    private async Task<HttpResponseMessage?> GetHttpResponseMessage(string url, Dictionary<string, string> parameters)
-    {
-        var builder = new UriBuilder(url);
-        builder.Query = string.Join("&", parameters.Select(kvp => $"{kvp.Key}={Uri.EscapeDataString(kvp.Value)}"));
-
-        return await httpRetryPipeline.ExecuteAsync(async ct =>
-        {
-            var request = new HttpRequestMessage() { RequestUri = builder.Uri, Method = HttpMethod.Get };
-            ConfigureRequest(request);
-
-            var response = await session.GetHttpClient().SendAsync(request, ct);
-
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                var responseData_ = response.Content == null ? null : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                throw new ApiException("Unexpected error", (int)response.StatusCode, responseData_, null, null);
-            }
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                throw new SegmentNotFoundException(url);
-            }
-            if (response.StatusCode != System.Net.HttpStatusCode.OK)
-            {
-                throw new InvalidOperationException($"Received status code {response.StatusCode} for url \'{url}\'");
-            }
-
-            return response;
-        }, tokenSource.Token);
-    }
-
     private void StopProgressTimer()
     {
         progressTimerManager.Stop();
@@ -524,75 +465,6 @@ public class SiriusXMPlayer : IDisposable
 
     public int? ICYMetaInt { get; internal set; }
     public bool DisableICYMetadata { get; internal set; } = false;
-
-    private async Task<Streams> TuneSource(string channelId, int retries = 0)
-    {
-        if (retries >= 5)
-        {
-            logger.LogError($"Too many retries");
-            throw new InvalidOperationException("Too many retries");
-        }
-        await sxmSessionService.LoginIfNecessary(nameof(TuneSource));
-        try
-        {
-            var allChannels = await metadataService.GetChannelsAsync();
-            var channel = allChannels.SingleOrDefault(c => c.Entity.Id == channelId);
-            if (channel is null)
-            {
-                throw new InvalidOperationException($"Channel {channelId} not found - {allChannels.Count} channels loaded");
-            }
-            var manifestVariant = "FULL";
-            if (channel.Entity.Type == "channel-linear")
-            {
-                manifestVariant = "WEB";
-            }
-            var tuneSource = await session.apiClient.TuneSourceAsync(new()
-            {
-                Id = channelId,
-                HlsVersion = "V3",
-                ManifestVariant = manifestVariant,
-                MtcVersion = "V2",
-                Type = channel.Entity.Type
-            });
-            var stream1 = tuneSource.Streams!.First();
-            if (channel.Entity.Type == "channel-linear")
-            {
-                metadataService.UpdateCutsFromStream(channelId, stream1.Metadata?.Live?.Items!.ToList());
-                return stream1;
-            }
-            else
-            {
-                //var metadata = stream1.Metadata!.
-                return stream1;
-            }
-        }
-        catch (HttpRequestException hex)
-        {
-            logger.LogWarning(hex, $"HTTP error during TuneSource - {hex.Message} - retrying - retries={retries}");
-            await Task.Delay(TimeSpan.FromSeconds(5 * (retries + 1)), tokenSource.Token);
-            await session.ReLogin();
-            sxmSessionService.InitializeActivityTimer();
-            return await TuneSource(channelId, retries + 1);
-        }
-        catch (ApiException aex)
-        {
-            if (aex.StatusCode == 200)
-            {
-                logger.LogCritical(aex, $"Error loading cuts {aex.Message}");
-                throw new InvalidOperationException("Error loading cuts");
-            }
-            else
-            {
-                logger.LogWarning($"Error loading cuts - error {aex.StatusCode}:{aex.Response ?? aex.Message} - retrying - retries={retries}");
-                await Task.Delay(TimeSpan.FromSeconds(5 * (retries + 1)), tokenSource.Token);
-                await session.ReLogin();
-                sxmSessionService.InitializeActivityTimer();
-                return await TuneSource(channelId, retries + 1);
-            }
-        }
-    }
-
-    private Dictionary<string, string> getQueryParameters() => new Dictionary<string, string> { };
 
     public async Task<EntityData?> GetChannelFromFilename(string fileName)
     {
@@ -706,7 +578,7 @@ public class SiriusXMPlayer : IDisposable
         string realChannelId = channelId == CURRENT_ID ? current?.Entity.Id ?? throw new InvalidOperationException("No channel selected") : channelId;
         if (channelId != CURRENT_ID && current?.Entity.Id != channelId)
         {
-            await SetCurrentChannel(channelId);
+            await metadataService.SetCurrentChannelAsync(channelId); // raises ChannelChanged -> OnChannelChanged
         }
 
 

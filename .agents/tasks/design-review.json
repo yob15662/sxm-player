@@ -1,0 +1,34 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "title": "INowPlayingProvider two-parameter interface method is not implicitly implemented by the three-parameter concrete GetNowPlaying with a defaulted parameter; will not compile",
+      "where": "design.md section '3. INowPlayingProvider' (~lines 246-264) and 'Finding 1 — ADDRESSED' (~lines 867-875); MetadataService.GetNowPlaying(string, DateTimeOffset?, bool tryRefresh = true)",
+      "fix": "C# interface implementation requires exact arity; a defaulted third parameter does not make the 3-param method satisfy a 2-param interface member (CS0535). Declare the interface method with the full signature GetNowPlaying(string channelId, DateTimeOffset? ts, bool tryRefresh = true) so the concrete method implicitly implements it (recommended), or add an explicit 2-param forwarder on MetadataService. Remove the false 'valid implicit implementation of the two-parameter interface method' claim."
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "title": "Channel-change cutover ignores StreamIcecastAsync's direct SetCurrentChannel call and leaves the fate of the player's SetCurrentChannel method unspecified",
+      "where": "SiriusXMPlayer.StreamIcecastAsync direct 'await SetCurrentChannel(channelId)' call; design.md FR3 / 'Channel-changed event contract' never mention this caller",
+      "fix": "State that the private SiriusXMPlayer.SetCurrentChannel method is removed, its hasChanged side-effect body lives only in OnChannelChanged (raised by MetadataService.SetCurrentChannelAsync), and re-point StreamIcecastAsync to 'await metadataService.SetCurrentChannelAsync(channelId)' so the event fires exactly once per genuine change on every path. Add StreamIcecastAsync to the enumerated re-pointed callers."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "title": "Event handler delegate shape not pinned at the subscription site",
+      "where": "design.md 'DI wiring approach' snippet (~lines 556-564) and OnChannelChanged body (~lines 432-444)",
+      "fix": "State explicitly that OnChannelChanged must be a Func<string, Task>-shaped method returning Task (e.g. Task.CompletedTask), not async void or EventHandler, to avoid a subtle miswire."
+    },
+    {
+      "id": 4,
+      "severity": "NIT",
+      "title": "GetProxyPlaylistUrlAsync useSecondary default is never relied upon; document that both callers pass the flag explicitly",
+      "where": "design.md 'GetProxyPlaylistUrlAsync public surface' (~lines 328-352) and 'Secondary-URL gate' (~lines 355-372)",
+      "fix": "Note that the bool useSecondary = false default exists only for clarity/source-compat and that both production callers (GetStreamPlaylistAsync via _playerState and GetSegment via its call-site read) pass the flag explicitly, so exactly one documented reader governs each path."
+    }
+  ],
+  "reviewDoc": "f:\\sxm-player\\.worktrees\\di-playlist-inversion\\.agents\\tasks\\design-review.md"
+}
