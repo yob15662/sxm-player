@@ -23,6 +23,14 @@ public class HlsSegmentProducer
     private readonly SegmentFanoutHub _fanout;
     private CancellationTokenSource? _producerStopCts;
     private Task? _producerTask;
+    // The combined cancellation token the current producer task is running on (links the
+    // caller-supplied channel-changed token with _producerStopCts). Liveness MUST be judged
+    // against this token: a playlist refresh cancels the channel-changed source that is linked
+    // into it, so this token reports cancellation the instant a refresh fires — before the
+    // producer's finally has nulled _producerTask. Checking _producerStopCts or a freshly
+    // supplied channelChangedCt instead would miss that signal and misclassify a dying producer
+    // as still active.
+    private CancellationToken _producerCombinedCt;
     private TaskCompletionSource<bool> _activitySignal = CreateActivitySignal();
 
     private static TaskCompletionSource<bool> CreateActivitySignal()
@@ -72,25 +80,17 @@ public class HlsSegmentProducer
 
         lock (_producerLock)
         {
-            // A producer is only genuinely "active" when its task is running AND its stop signal
-            // has not fired. If the stop token (or the channel-changed token that started it) is
-            // cancelled, the producer is tearing down; we must not attach to it, and we must wait
-            // for its teardown before starting a replacement.
-            var isStopping =
-                _producerStopCts is null ||
-                _producerStopCts.IsCancellationRequested ||
-                channelChangedCt.IsCancellationRequested;
-
-            if (_producerTask is { IsCompleted: false } && !isStopping)
+            if (IsProducerLive())
             {
                 // Genuine attach-to-active-producer case.
                 _fanout.Register(listener, writer, clientDisconnectToken);
                 return true;
             }
 
-            // Producer is absent, completed, or stopping. If a stopping task is still running,
-            // capture it so we can await its teardown (its finally runs _fanout.CompleteAll and
-            // nulls _producerTask) BEFORE registering the new writer.
+            // Producer is absent, completed, or stopping (its combined token is cancelled but its
+            // finally may not have run yet). If a task is still running, capture it so we can await
+            // its teardown (its finally runs _fanout.CompleteAll and nulls _producerTask) BEFORE
+            // registering the new writer — otherwise that teardown would complete our new writer.
             if (_producerTask is { IsCompleted: false })
             {
                 stoppingTask = _producerTask;
@@ -115,13 +115,8 @@ public class HlsSegmentProducer
         lock (_producerLock)
         {
             // Re-check: while awaiting the old teardown another caller may have already started a
-            // fresh producer. If so, just attach to it instead of starting a second one.
-            var liveProducerExists =
-                _producerTask is { IsCompleted: false } &&
-                _producerStopCts is { IsCancellationRequested: false } &&
-                !channelChangedCt.IsCancellationRequested;
-
-            if (liveProducerExists)
+            // fresh, live producer. If so, just attach to it instead of starting a second one.
+            if (IsProducerLive())
             {
                 _fanout.Register(listener, writer, clientDisconnectToken);
                 return true;
@@ -132,10 +127,21 @@ public class HlsSegmentProducer
             _producerStopCts?.Dispose();
             _producerStopCts = new CancellationTokenSource();
             var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(channelChangedCt, _producerStopCts.Token);
+            _producerCombinedCt = combinedCts.Token;
             _producerTask = RunProducerAsync(channelProvider, combinedCts);
             return false;
         }
     }
+
+    /// <summary>
+    /// A producer is live only when its task is running AND the combined token it runs on has not
+    /// been cancelled. The combined token is linked to the caller's channel-changed source, so a
+    /// playlist refresh (which cancels that source) makes this false immediately — the correct
+    /// signal that the producer is stopping, even before its finally nulls the fields.
+    /// Caller must hold <see cref="_producerLock"/>.
+    /// </summary>
+    private bool IsProducerLive()
+        => _producerTask is { IsCompleted: false } && !_producerCombinedCt.IsCancellationRequested;
 
     /// <summary>
     /// Cancels producers for inactive clients.

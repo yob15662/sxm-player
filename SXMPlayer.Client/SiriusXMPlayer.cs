@@ -81,14 +81,10 @@ public class SiriusXMPlayer : IDisposable
     private readonly object playlistRefreshLock = new();
     private DateTimeOffset lastPlaylistRefresh = DateTimeOffset.MinValue;
     private static readonly TimeSpan PlaylistRefreshDebounce = TimeSpan.FromSeconds(5);
-    // Number of consecutive (debounced) playlist refreshes caused by stale/404 segments
-    // before the stream URL selection falls back to the secondary URL. Reset once a
-    // channel change gives us a known-good fresh start.
-    private const int SecondaryFallbackRefreshThreshold = 2;
-    private int consecutiveStaleRefreshes;
-    // When true, the next source playlist fetch prefers the secondary stream URL.
-    // Set after repeated stale refreshes; cleared on a genuine channel change.
-    private bool useSecondaryStreamUrl;
+    // Process-wide escalation state (consecutive stale-refresh counter and the
+    // secondary-URL fallback flag) lives in the DI-singleton PlayerState so the
+    // fetch and refresh paths share one thread-safe owner.
+    private readonly PlayerState playerState;
     private CacheManager cacheManager = null!;
 
 
@@ -106,10 +102,11 @@ public class SiriusXMPlayer : IDisposable
     // Test-only seam: lets subclasses in the test project stand in for a real player
     // (overriding virtual members such as GetSegment / RequestPlaylistRefresh) without
     // running the full dependency-wiring constructor.
-    protected SiriusXMPlayer(ILogger<SiriusXMPlayer> logger, PlaylistService playlistService)
+    protected SiriusXMPlayer(ILogger<SiriusXMPlayer> logger, PlaylistService playlistService, PlayerState? playerState = null)
     {
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.playlistService = playlistService ?? throw new ArgumentNullException(nameof(playlistService));
+        this.playerState = playerState ?? new PlayerState();
         username = null!;
         password = null!;
         session = null!;
@@ -124,7 +121,8 @@ public class SiriusXMPlayer : IDisposable
     public SiriusXMPlayer(IConfiguration configuration,
                     ILogger<SiriusXMPlayer> logger,
                     ILoggerFactory loggerFactory,
-                    IWebHostEnvironment hostingEnvironment)
+                    IWebHostEnvironment hostingEnvironment,
+                    PlayerState playerState)
     {
         if (configuration is null)
         {
@@ -145,6 +143,8 @@ public class SiriusXMPlayer : IDisposable
         {
             throw new ArgumentNullException(nameof(hostingEnvironment));
         }
+
+        this.playerState = playerState ?? throw new ArgumentNullException(nameof(playerState));
 
         username = configuration.GetSection("SXM")["username"] ?? throw new InvalidProgramException("username is missing");
         password = configuration.GetSection("SXM")["password"] ?? throw new InvalidProgramException("password is missing");
@@ -270,7 +270,7 @@ public class SiriusXMPlayer : IDisposable
                     selectedChannelId,
                     selected => TuneSource(selected),
                     async url => await GetHttpResponseMessage(url, getQueryParameters()),
-                    useSecondary: Volatile.Read(ref useSecondaryStreamUrl)),
+                    useSecondary: playerState.UseSecondaryStreamUrl),
                 async url => await GetHttpResponseMessage(url, getQueryParameters()),
                 async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts),
                 metadataService.GetNowPlaying());
@@ -331,21 +331,23 @@ public class SiriusXMPlayer : IDisposable
             }
 
             lastPlaylistRefresh = now;
-            consecutiveStaleRefreshes++;
-            logger.LogInformation("Playlist refresh requested - reason={Reason} consecutiveStaleRefreshes={Count}",
-                reason,
-                consecutiveStaleRefreshes);
 
             // After repeated stale refreshes the primary stream URL isn't recovering;
-            // fall back to the secondary URL for the next fetch. Reset the counter so
-            // we give the secondary a clean run before considering further escalation.
-            if (!useSecondaryStreamUrl && consecutiveStaleRefreshes >= SecondaryFallbackRefreshThreshold)
+            // fall back to the secondary URL for the next fetch. PlayerState increments
+            // the counter and, on escalation, flips the flag and resets the counter so
+            // the secondary gets a clean run before considering further escalation.
+            // Capture the count the registration observed (pre-reset) so the log mirrors
+            // the previous behavior, where the incremented value was logged before any reset.
+            var (escalated, observedCount) = playerState.RegisterStaleRefresh();
+            logger.LogInformation("Playlist refresh requested - reason={Reason} consecutiveStaleRefreshes={Count}",
+                reason,
+                observedCount);
+
+            if (escalated)
             {
-                Volatile.Write(ref useSecondaryStreamUrl, true);
-                consecutiveStaleRefreshes = 0;
                 logger.LogWarning(
                     "Repeated stale playlist refreshes ({Threshold}); falling back to secondary stream URL - reason={Reason}",
-                    SecondaryFallbackRefreshThreshold,
+                    PlayerState.SecondaryFallbackRefreshThreshold,
                     reason);
             }
 
@@ -364,10 +366,8 @@ public class SiriusXMPlayer : IDisposable
     {
         lock (playlistRefreshLock)
         {
-            consecutiveStaleRefreshes = 0;
-            if (useSecondaryStreamUrl)
+            if (playerState.ResetStreamUrlFallback())
             {
-                Volatile.Write(ref useSecondaryStreamUrl, false);
                 logger.LogInformation("Resetting stream URL selection back to primary after channel change.");
             }
         }
@@ -398,7 +398,7 @@ public class SiriusXMPlayer : IDisposable
                     channelId,
                     selected => TuneSource(selected),
                     async url => await GetHttpResponseMessage(url, getQueryParameters()),
-                    useSecondary: Volatile.Read(ref useSecondaryStreamUrl));
+                    useSecondary: playerState.UseSecondaryStreamUrl);
             }
             catch { }
 

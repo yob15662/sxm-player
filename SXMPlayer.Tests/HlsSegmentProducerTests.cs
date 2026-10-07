@@ -22,7 +22,7 @@ public class HlsSegmentProducerTests
     // Simple stub for SiriusXMPlayer to avoid Moq proxy issues
     private class SiriusXMPlayerStub : SiriusXMPlayer
     {
-        public SiriusXMPlayerStub() : base(null!, null!, null!, null!) { }
+        public SiriusXMPlayerStub() : base(null!, null!, null!, null!, null!) { }
     }
 
     private static PlaylistService CreatePlaylistService()
@@ -124,6 +124,72 @@ public class HlsSegmentProducerTests
         Assert.True(channelChangedToken.IsCancellationRequested);
         Assert.NotEqual(channelChangedToken, player.ChannelChangedTokenForTest);
         Assert.False(player.ChannelChangedTokenForTest.IsCancellationRequested);
+    }
+
+    // Stub whose GetStreamPlaylist returns null, so RunProducerAsync idles on its
+    // Task.Delay(500, combinedCt) loop and the producer stays "running" until its linked
+    // (channel-changed) token is cancelled. Lets us exercise producer lifecycle without a
+    // live HTTP stream.
+    private sealed class IdlePlayerStub : SiriusXMPlayer
+    {
+        public IdlePlayerStub()
+            : base(new Mock<ILogger<SiriusXMPlayer>>().Object, CreatePlaylistService())
+        {
+        }
+
+        public override Task<string?> GetStreamPlaylist(string channelId, SXMListener? listener, string? alias = null, bool useCache = true, int retries = 0)
+            => Task.FromResult<string?>(null);
+    }
+
+    // Regression test for the secondary-URL fallback stall: when a producer is cancelled
+    // (playlist refresh) its teardown is asynchronous. A restart that re-enters StartProducer
+    // while the old task is cancelled-but-not-yet-finished must NOT attach to the dying
+    // producer (which would then complete the newly registered writer and leave the stream
+    // dead until a full process restart). It must await the old teardown and start a fresh
+    // producer instead.
+    [Fact]
+    public async Task StartProducer_AfterChannelChangedTokenCancelled_StartsFreshProducer()
+    {
+        // Arrange
+        var player = new IdlePlayerStub();
+        var producer = new HlsSegmentProducer(player, CreateMockLogger().Object);
+        var listener = new SXMListener(IPAddress.Loopback);
+        Func<Task<ChannelItemData?>> channelProvider = () => Task.FromResult<ChannelItemData?>(ChannelWithId("channel-1"));
+
+        var firstChannelChanged = new CancellationTokenSource();
+        var firstQueue = System.Threading.Channels.Channel.CreateUnbounded<SegmentWorkItem>();
+
+        // Start the initial producer (no producer running yet -> starts fresh, returns false).
+        var firstStartedAttached = await producer.StartProducer(
+            firstQueue.Writer, channelProvider, listener,
+            firstChannelChanged.Token, CancellationToken.None);
+        Assert.False(firstStartedAttached);
+
+        // Act - simulate a playlist refresh: cancel the channel-changed source the producer is
+        // linked to (this is what RequestPlaylistRefresh does), then immediately re-enter
+        // StartProducer with a NEW, uncancelled channel-changed source, exactly as the consumer
+        // loop does on its restart iteration.
+        firstChannelChanged.Cancel();
+
+        var secondChannelChanged = new CancellationTokenSource();
+        var secondQueue = System.Threading.Channels.Channel.CreateUnbounded<SegmentWorkItem>();
+        var secondStartedAttached = await producer.StartProducer(
+            secondQueue.Writer, channelProvider, listener,
+            secondChannelChanged.Token, CancellationToken.None);
+
+        // Assert - the restart started a FRESH producer (false == not attached-to-active),
+        // rather than mistaking the dying producer for a live one (which returned true in the
+        // bug and produced "Attached client ... to the active HLS segment producer." with no
+        // restart).
+        Assert.False(secondStartedAttached);
+
+        // And the freshly registered writer must still be open (NOT completed by the old
+        // producer's teardown). A completed writer would reject new segments.
+        Assert.True(secondQueue.Writer.TryWrite(
+            new SegmentWorkItem("seg.aac", "v1", 0, new Memory<byte>(new byte[] { 1 }))));
+
+        // Cleanup - cancel the live producer so the test doesn't leak a background loop.
+        secondChannelChanged.Cancel();
     }
 
     [Fact]

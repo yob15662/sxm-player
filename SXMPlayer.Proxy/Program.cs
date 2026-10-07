@@ -66,6 +66,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<PlayerState>();
 builder.Services.AddSingleton<SiriusXMPlayer>();
 builder.Services.AddHostedService<LibraryM3UExporter>();
 

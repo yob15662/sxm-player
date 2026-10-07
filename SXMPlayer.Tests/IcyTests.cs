@@ -54,7 +54,7 @@ namespace SXMPlayer.Tests
         [Fact]
         public async Task TestIcyMetadataParsing()
         {
-            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
+            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object, new PlayerState());
             playerMock.Setup(p => p.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
 
             // Create actual instances for MetadataService dependencies (not used in this test anyway)
@@ -222,7 +222,7 @@ namespace SXMPlayer.Tests
             metadataServiceMock.Setup(m => m.GetNowPlaying()).Returns(new NowPlayingData("c", "Artist", "Title", null));
 
             // Create a mock player - not used in this specific test but required by IcecastStreamer constructor
-            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object);
+            var playerMock = new Mock<SiriusXMPlayer>(_configurationMock.Object, _loggerMock.Object, _loggerFactoryMock.Object, _webHostEnvironmentMock.Object, new PlayerState());
 
             var icecast = new IcecastStreamer(_loggerMock.Object, metadataServiceMock.Object, playerMock.Object);
             var block = icecast.GetMetadataBlock();
