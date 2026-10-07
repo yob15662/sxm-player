@@ -78,6 +78,9 @@ public class SiriusXMPlayer : IDisposable
 
     private CancellationTokenSource tokenSource = new CancellationTokenSource();
     private CancellationTokenSource channelChangedSource = new CancellationTokenSource();
+    private readonly object playlistRefreshLock = new();
+    private DateTimeOffset lastPlaylistRefresh = DateTimeOffset.MinValue;
+    private static readonly TimeSpan PlaylistRefreshDebounce = TimeSpan.FromSeconds(5);
     private CacheManager cacheManager = null!;
 
 
@@ -91,6 +94,24 @@ public class SiriusXMPlayer : IDisposable
 
     //status - every 50 seconds
     //https://api.edge-gateway.siriusxm.com/playback/stream-enforcement/v1/status
+
+    // Test-only seam: lets subclasses in the test project stand in for a real player
+    // (overriding virtual members such as GetSegment / RequestPlaylistRefresh) without
+    // running the full dependency-wiring constructor.
+    protected SiriusXMPlayer(ILogger<SiriusXMPlayer> logger, PlaylistService playlistService)
+    {
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.playlistService = playlistService ?? throw new ArgumentNullException(nameof(playlistService));
+        username = null!;
+        password = null!;
+        session = null!;
+        sxmSessionService = null!;
+        encryptionService = null!;
+        icecastStreamer = null!;
+        httpRetryPipeline = null!;
+        metadataService = null!;
+        progressTimerManager = null!;
+    }
 
     public SiriusXMPlayer(IConfiguration configuration,
                     ILogger<SiriusXMPlayer> logger,
@@ -163,7 +184,7 @@ public class SiriusXMPlayer : IDisposable
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                    .HandleResult(response => !response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Forbidden)
+                    .HandleResult(response => !response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Forbidden && response.StatusCode != System.Net.HttpStatusCode.NotFound)
                     .Handle<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
                     .Handle<HttpRequestException>(),
                 OnRetry = args =>
@@ -278,7 +299,37 @@ public class SiriusXMPlayer : IDisposable
         return currentChannel;
     }
 
-    public async Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
+    /// <summary>
+    /// Treats a stale playlist (e.g. a segment returned 404) as a signal to re-fetch the
+    /// current channel's stream playlist and restart the producer against fresh data.
+    /// Reuses the existing <see cref="channelChangedSource"/> restart path. Debounced so a
+    /// burst of 404s triggers at most one refresh within <see cref="PlaylistRefreshDebounce"/>.
+    /// </summary>
+    // Test-only accessor for the current channel-changed token, used to observe that a
+    // playlist refresh cancelled-and-replaced the restart signal.
+    internal CancellationToken ChannelChangedTokenForTest => channelChangedSource.Token;
+
+    public virtual void RequestPlaylistRefresh(string reason)
+    {
+        lock (playlistRefreshLock)
+        {
+            var now = DateTimeOffset.Now;
+            if (now - lastPlaylistRefresh < PlaylistRefreshDebounce)
+            {
+                logger.LogDebug("Skipping playlist refresh (debounced) - reason={Reason}", reason);
+                return;
+            }
+
+            lastPlaylistRefresh = now;
+            logger.LogInformation("Playlist refresh requested - reason={Reason}", reason);
+
+            playlistService.InvalidatePlaylistCache();
+            channelChangedSource.Cancel();
+            channelChangedSource = new CancellationTokenSource();
+        }
+    }
+
+    public virtual async Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
     {
         // Never inject ICY metadata into HLS AAC segments; this corrupts the container and leads to disconnects.
         return await GetSegmentInternal(channelId, version, segmentId, client);
@@ -350,6 +401,12 @@ public class SiriusXMPlayer : IDisposable
             }
             return await output.Content.ReadAsStreamAsync();
         }
+        catch (SegmentNotFoundException)
+        {
+            // 404 means the playlist is stale; the producer logs this once and refreshes.
+            // Do not emit a per-attempt error stack trace here.
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, $"Error fetching/decrypting segment {segmentId}");
@@ -399,6 +456,10 @@ public class SiriusXMPlayer : IDisposable
             {
                 var responseData_ = response.Content == null ? null : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 throw new ApiException("Unexpected error", (int)response.StatusCode, responseData_, null, null);
+            }
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new SegmentNotFoundException(url);
             }
             if (response.StatusCode != System.Net.HttpStatusCode.OK)
             {

@@ -35,6 +35,16 @@ public class PlaylistService
 
     public IReadOnlyDictionary<string, DateTimeOffset?> StreamTimeMap => _streamTimeMap;
 
+    /// <summary>
+    /// Clears the cached playlist so the next fetch retrieves fresh data.
+    /// Used when a stale playlist is detected (e.g. a segment returned 404).
+    /// </summary>
+    public void InvalidatePlaylistCache()
+    {
+        _cachedPlaylist = null;
+        _logger.LogDebug("Playlist cache invalidated; next fetch will retrieve fresh data.");
+    }
+
     public double? AverageSegmentDuration { get; private set; }
 
     public bool TryGetStream(string channelId, out SXMStream? stream)

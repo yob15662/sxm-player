@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging;
 using Moq;
 using System;
+using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace SXMPlayer.Tests;
 
@@ -21,6 +23,107 @@ public class HlsSegmentProducerTests
     private class SiriusXMPlayerStub : SiriusXMPlayer
     {
         public SiriusXMPlayerStub() : base(null!, null!, null!, null!) { }
+    }
+
+    private static PlaylistService CreatePlaylistService()
+        => new PlaylistService(new Mock<ILogger<PlaylistService>>().Object);
+
+    // Stub using the test-only constructor so GetSegment / RequestPlaylistRefresh can be
+    // overridden without wiring up the full player dependency graph. GetSegment always
+    // signals a 404 and RequestPlaylistRefresh is counted rather than executed, so this
+    // isolates the producer's behavior (no per-segment retry).
+    private sealed class NotFoundPlayerStub : SiriusXMPlayer
+    {
+        public NotFoundPlayerStub()
+            : base(new Mock<ILogger<SiriusXMPlayer>>().Object, CreatePlaylistService())
+        {
+        }
+
+        public int GetSegmentCalls { get; private set; }
+        public int RefreshRequests { get; private set; }
+
+        public override Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
+        {
+            GetSegmentCalls++;
+            throw new SegmentNotFoundException($"https://example/{segmentId}");
+        }
+
+        public override void RequestPlaylistRefresh(string reason)
+        {
+            RefreshRequests++;
+        }
+    }
+
+    // Stub that runs the real RequestPlaylistRefresh (with its debounce) to verify a burst
+    // of 404s collapses into a single actual refresh.
+    private sealed class RealRefreshPlayerStub : SiriusXMPlayer
+    {
+        public RealRefreshPlayerStub()
+            : base(new Mock<ILogger<SiriusXMPlayer>>().Object, CreatePlaylistService())
+        {
+        }
+
+        public override Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
+            => throw new SegmentNotFoundException($"https://example/{segmentId}");
+    }
+
+    private static ChannelItemData ChannelWithId(string id)
+        => new ChannelItemData { Entity = new EntityData { Id = id } };
+
+    [Fact]
+    public async Task FetchAndDecryptSegment_WhenSegment404_DoesNotRetryAndRequestsRefresh()
+    {
+        // Arrange
+        var player = new NotFoundPlayerStub();
+        var producer = new HlsSegmentProducer(player, CreateMockLogger().Object);
+        Func<Task<ChannelItemData>> channelProvider = () => Task.FromResult(ChannelWithId("channel-1"));
+
+        // Act - a single stale segment returns 404.
+        var result = await producer.FetchAndDecryptSegment(
+            "channel-1",
+            channelProvider,
+            version: "14",
+            segmentName: "seg_0.aac",
+            currentKey: null,
+            currentIV: null,
+            segmentSequence: 0,
+            cancellationToken: CancellationToken.None);
+
+        // Assert - the segment yielded no data, was fetched exactly once (NOT 3x via the
+        // retry loop), and a playlist refresh was requested instead.
+        Assert.Null(result);
+        Assert.Equal(1, player.GetSegmentCalls);
+        Assert.Equal(1, player.RefreshRequests);
+    }
+
+    [Fact]
+    public async Task RequestPlaylistRefresh_BurstOf404s_TriggersSingleRefresh()
+    {
+        // Arrange
+        var player = new RealRefreshPlayerStub();
+        var channelChangedToken = player.ChannelChangedTokenForTest;
+        var producer = new HlsSegmentProducer(player, CreateMockLogger().Object);
+        Func<Task<ChannelItemData>> channelProvider = () => Task.FromResult(ChannelWithId("channel-1"));
+
+        // Act - three 404s in quick succession (well within the debounce window).
+        for (var i = 0; i < 3; i++)
+        {
+            await producer.FetchAndDecryptSegment(
+                "channel-1",
+                channelProvider,
+                version: "14",
+                segmentName: $"seg_{i}.aac",
+                currentKey: null,
+                currentIV: null,
+                segmentSequence: i,
+                cancellationToken: CancellationToken.None);
+        }
+
+        // Assert - the real debounced RequestPlaylistRefresh cancelled the channel-changed
+        // token exactly once; subsequent 404s within the window were collapsed.
+        Assert.True(channelChangedToken.IsCancellationRequested);
+        Assert.NotEqual(channelChangedToken, player.ChannelChangedTokenForTest);
+        Assert.False(player.ChannelChangedTokenForTest.IsCancellationRequested);
     }
 
     [Fact]

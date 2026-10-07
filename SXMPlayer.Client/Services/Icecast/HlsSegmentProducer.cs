@@ -248,7 +248,7 @@ public class HlsSegmentProducer
         }
     }
 
-    private async Task<byte[]?> FetchAndDecryptSegment(
+    internal async Task<byte[]?> FetchAndDecryptSegment(
         string channelId,
         Func<Task<ChannelItemData>> channelProvider,
         string version,
@@ -281,6 +281,19 @@ public class HlsSegmentProducer
             catch (OperationCanceledException)
             {
                 throw;
+            }
+            catch (SegmentNotFoundException)
+            {
+                // A 404 means the playlist is stale. Do not retry the same segment;
+                // trigger a (debounced) playlist refresh and let the producer restart
+                // against the fresh segment list.
+                _logger.LogWarning(
+                    "Segment {SegmentName} not found (404) for channel {ChannelId}; refreshing playlist.",
+                    segmentName,
+                    channelId);
+
+                _player.RequestPlaylistRefresh($"segment {segmentName} 404");
+                return null;
             }
             catch (Exception ex) when (attempt < maxAttempts)
             {
