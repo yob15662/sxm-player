@@ -81,6 +81,14 @@ public class SiriusXMPlayer : IDisposable
     private readonly object playlistRefreshLock = new();
     private DateTimeOffset lastPlaylistRefresh = DateTimeOffset.MinValue;
     private static readonly TimeSpan PlaylistRefreshDebounce = TimeSpan.FromSeconds(5);
+    // Number of consecutive (debounced) playlist refreshes caused by stale/404 segments
+    // before the stream URL selection falls back to the secondary URL. Reset once a
+    // channel change gives us a known-good fresh start.
+    private const int SecondaryFallbackRefreshThreshold = 2;
+    private int consecutiveStaleRefreshes;
+    // When true, the next source playlist fetch prefers the secondary stream URL.
+    // Set after repeated stale refreshes; cleared on a genuine channel change.
+    private bool useSecondaryStreamUrl;
     private CacheManager cacheManager = null!;
 
 
@@ -261,7 +269,8 @@ public class SiriusXMPlayer : IDisposable
                 async selectedChannelId => await playlistService.GetProxyPlaylistUrlAsync(
                     selectedChannelId,
                     selected => TuneSource(selected),
-                    async url => await GetHttpResponseMessage(url, getQueryParameters())),
+                    async url => await GetHttpResponseMessage(url, getQueryParameters()),
+                    useSecondary: Volatile.Read(ref useSecondaryStreamUrl)),
                 async url => await GetHttpResponseMessage(url, getQueryParameters()),
                 async (selectedChannelId, ts) => await metadataService.GetNowPlaying(selectedChannelId, ts),
                 metadataService.GetNowPlaying());
@@ -291,6 +300,7 @@ public class SiriusXMPlayer : IDisposable
         {
             logger.LogInformation($"Setting current channel to {channelId}");
             progressTimerManager.MarkChannelChanged();
+            ResetStreamUrlFallback();
             channelChangedSource.Cancel();
             channelChangedSource = new CancellationTokenSource();
             // Cuts will refresh on next metadata request
@@ -321,7 +331,23 @@ public class SiriusXMPlayer : IDisposable
             }
 
             lastPlaylistRefresh = now;
-            logger.LogInformation("Playlist refresh requested - reason={Reason}", reason);
+            consecutiveStaleRefreshes++;
+            logger.LogInformation("Playlist refresh requested - reason={Reason} consecutiveStaleRefreshes={Count}",
+                reason,
+                consecutiveStaleRefreshes);
+
+            // After repeated stale refreshes the primary stream URL isn't recovering;
+            // fall back to the secondary URL for the next fetch. Reset the counter so
+            // we give the secondary a clean run before considering further escalation.
+            if (!useSecondaryStreamUrl && consecutiveStaleRefreshes >= SecondaryFallbackRefreshThreshold)
+            {
+                Volatile.Write(ref useSecondaryStreamUrl, true);
+                consecutiveStaleRefreshes = 0;
+                logger.LogWarning(
+                    "Repeated stale playlist refreshes ({Threshold}); falling back to secondary stream URL - reason={Reason}",
+                    SecondaryFallbackRefreshThreshold,
+                    reason);
+            }
 
             playlistService.InvalidatePlaylistCache();
             channelChangedSource.Cancel();
@@ -329,13 +355,25 @@ public class SiriusXMPlayer : IDisposable
         }
     }
 
-    public virtual async Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
+    /// <summary>
+    /// Resets the stale-refresh escalation state (consecutive-refresh counter and the
+    /// secondary-URL fallback flag) back to the primary stream URL. Called when a genuine
+    /// channel change gives us a fresh, known-good starting point.
+    /// </summary>
+    private void ResetStreamUrlFallback()
     {
-        // Never inject ICY metadata into HLS AAC segments; this corrupts the container and leads to disconnects.
-        return await GetSegmentInternal(channelId, version, segmentId, client);
+        lock (playlistRefreshLock)
+        {
+            consecutiveStaleRefreshes = 0;
+            if (useSecondaryStreamUrl)
+            {
+                Volatile.Write(ref useSecondaryStreamUrl, false);
+                logger.LogInformation("Resetting stream URL selection back to primary after channel change.");
+            }
+        }
     }
 
-    private async Task<Stream> GetSegmentInternal(string channelId, string version, string segmentId, SXMListener? client)
+    public virtual async Task<Stream> GetSegment(string channelId, string version, string segmentId, SXMListener? client)
     {
         UpdateClientActivity();
         var currentChannel = await metadataService.GetCurrentChannelAsync();
@@ -359,7 +397,8 @@ public class SiriusXMPlayer : IDisposable
                 _ = await playlistService.GetProxyPlaylistUrlAsync(
                     channelId,
                     selected => TuneSource(selected),
-                    async url => await GetHttpResponseMessage(url, getQueryParameters()));
+                    async url => await GetHttpResponseMessage(url, getQueryParameters()),
+                    useSecondary: Volatile.Read(ref useSecondaryStreamUrl));
             }
             catch { }
 
@@ -385,7 +424,7 @@ public class SiriusXMPlayer : IDisposable
         //var ts = playlistMap?[v]
         //AAC_Data/{channel:regex(.*)}/{stream:regex(.*)}/{name:regex(.*\\.aac)}
         //var currentTrack = await GetNowPlaying(channel, ts);
-        var url = $"{stream.path}{version}/{segmentId}";
+        var url = $"{stream.path}{version}/{segmentId}?CMDC=";
         var parameters = getQueryParameters();
 
         try
@@ -413,6 +452,8 @@ public class SiriusXMPlayer : IDisposable
             throw;
         }
     }
+    
+
 
     public void RegisterNowPlayingListener(Action<NowPlayingData> listener)
     {
@@ -716,7 +757,15 @@ public class SiriusXMPlayer : IDisposable
                 SingleWriter = false
             });
 
-            icecastStreamer.StartHLSReader(segmentQueue.Writer, listener, channelChangedSource.Token, ct);
+            // Snapshot the current channel-changed source for this iteration. RequestPlaylistRefresh
+            // cancels this source AND replaces the field with a fresh (uncancelled) CTS, so after a
+            // refresh the live field no longer reports cancellation. We must observe cancellation on
+            // the SAME source we handed to the producer, otherwise we miss the restart signal and the
+            // producer stays stopped (e.g. the secondary-URL fallback appeared to require a player
+            // restart to take effect).
+            var iterationChannelChanged = channelChangedSource;
+
+            await icecastStreamer.StartHLSReader(segmentQueue.Writer, listener, iterationChannelChanged.Token, ct);
 
             var receivedAnyData = false;
 
@@ -755,7 +804,11 @@ public class SiriusXMPlayer : IDisposable
                 break;
             }
 
-            if (channelChangedSource.IsCancellationRequested)
+            // Check the snapshot (not the live field): a refresh cancels this exact source even
+            // though the field has already been swapped to a fresh one. Looping restarts the
+            // producer, whose next GetStreamPlaylist re-runs GetProxyPlaylistUrlAsync and picks up
+            // any secondary-URL fallback.
+            if (iterationChannelChanged.IsCancellationRequested)
             {
                 logger.LogInformation("Playlist refresh requested, restarting producer.");
                 continue;
@@ -764,12 +817,12 @@ public class SiriusXMPlayer : IDisposable
             if (!receivedAnyData)
             {
                 logger.LogDebug("No HLS segments were produced for this iteration; waiting for producer activity before restart.");
-                using var waitForDataCts = CancellationTokenSource.CreateLinkedTokenSource(ct, channelChangedSource.Token);
+                using var waitForDataCts = CancellationTokenSource.CreateLinkedTokenSource(ct, iterationChannelChanged.Token);
                 try
                 {
                     await icecastStreamer.WaitForProducerActivityAsync(waitForDataCts.Token);
                 }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested && !channelChangedSource.IsCancellationRequested)
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested && !iterationChannelChanged.IsCancellationRequested)
                 {
                     // Ignore transient wait cancellations and continue the loop.
                 }

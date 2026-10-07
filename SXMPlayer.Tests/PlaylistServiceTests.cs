@@ -77,7 +77,8 @@ public class PlaylistServiceTests
             _ => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("bandwidth.m3u8")
-            }));
+            }),
+            useSecondary: false);
 
         Assert.Equal("https://example.com/v1/token/sec-1/AAC_Data/channel/bandwidth.m3u8", final);
         Assert.True(service.TryGetStream("channel", out var stream));

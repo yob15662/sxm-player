@@ -50,13 +50,13 @@ public class IcecastStreamer
     /// <summary>
     /// Starts producing segments from a playlist for the given channel.
     /// </summary>
-    public void StartHLSReader(
+    public async Task StartHLSReader(
         ChannelWriter<SegmentWorkItem> writer,
         SXMListener listener,
         CancellationToken channelChangedCt,
         CancellationToken clientDisconnectCt)
     {
-        var wasAlreadyActive = _segmentProducer.StartProducer(writer, _metadataService.GetCurrentChannelAsync, listener, channelChangedCt, clientDisconnectCt);
+        var wasAlreadyActive = await _segmentProducer.StartProducer(writer, _metadataService.GetCurrentChannelAsync, listener, channelChangedCt, clientDisconnectCt);
 
         if (wasAlreadyActive)
         {

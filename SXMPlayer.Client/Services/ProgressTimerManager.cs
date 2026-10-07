@@ -165,13 +165,13 @@ public sealed class ProgressTimerManager : IDisposable
     {
         if (!_hasActiveListeners())
         {
-            _logger.LogDebug("Stopping progress timer - no active listeners");
+            _logger.LogDebug("Skipping progress timer - no active listeners");
             return false;
         }
 
         if (!HasRequiredProgressContext())
         {
-            _logger.LogWarning("Stopping progress timer - no current channel or nowPlaying id");
+            _logger.LogWarning("Skipping progress timer - no current channel or nowPlaying id");
             return false;
         }
 

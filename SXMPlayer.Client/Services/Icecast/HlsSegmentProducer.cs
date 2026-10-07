@@ -51,30 +51,89 @@ public class HlsSegmentProducer
     /// Registers a client writer with the shared HLS producer.
     /// Starts the shared producer when it is not already active.
     /// </summary>
-    /// <returns>True when the shared producer was already active.</returns>
-    public bool StartProducer(
+    /// <remarks>
+    /// A producer that has been cancelled (channel change or playlist refresh) but whose
+    /// teardown has not yet completed is treated as <em>stopping</em>, not active. In that case
+    /// this method awaits the old producer's completion before registering the new writer, so
+    /// the old task's <c>_fanout.CompleteAll(...)</c> cannot complete the just-registered writer
+    /// and leave the stream without a live producer. This is what lets a playlist refresh (e.g.
+    /// the secondary-URL fallback) reliably restart production instead of requiring a full
+    /// player restart.
+    /// </remarks>
+    /// <returns>True when the shared producer was already active (a new client was attached).</returns>
+    public async Task<bool> StartProducer(
         ChannelWriter<SegmentWorkItem> writer,
         Func<Task<ChannelItemData?>> channelProvider,
         SXMListener listener,
         CancellationToken channelChangedCt,
         CancellationToken clientDisconnectToken)
     {
+        Task? stoppingTask = null;
+
         lock (_producerLock)
         {
-            var wasAlreadyActive = _producerTask is { IsCompleted: false };
+            // A producer is only genuinely "active" when its task is running AND its stop signal
+            // has not fired. If the stop token (or the channel-changed token that started it) is
+            // cancelled, the producer is tearing down; we must not attach to it, and we must wait
+            // for its teardown before starting a replacement.
+            var isStopping =
+                _producerStopCts is null ||
+                _producerStopCts.IsCancellationRequested ||
+                channelChangedCt.IsCancellationRequested;
 
-            _fanout.Register(listener, writer, clientDisconnectToken);
-
-            if (!wasAlreadyActive)
+            if (_producerTask is { IsCompleted: false } && !isStopping)
             {
-                _logger.LogInformation("Starting HLS segment producer.");
-                _producerStopCts?.Dispose();
-                _producerStopCts = new CancellationTokenSource();
-                var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(channelChangedCt, _producerStopCts.Token);
-                _producerTask = RunProducerAsync(channelProvider, combinedCts);
+                // Genuine attach-to-active-producer case.
+                _fanout.Register(listener, writer, clientDisconnectToken);
+                return true;
             }
 
-            return wasAlreadyActive;
+            // Producer is absent, completed, or stopping. If a stopping task is still running,
+            // capture it so we can await its teardown (its finally runs _fanout.CompleteAll and
+            // nulls _producerTask) BEFORE registering the new writer.
+            if (_producerTask is { IsCompleted: false })
+            {
+                stoppingTask = _producerTask;
+            }
+        }
+
+        if (stoppingTask is not null)
+        {
+            // Awaited outside the lock so the old producer's finally (which also takes
+            // _producerLock) can run to completion without deadlocking.
+            try
+            {
+                await stoppingTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // The old producer's failure is already logged by RunProducerAsync; we only need
+                // it to have finished its teardown before we start fresh.
+            }
+        }
+
+        lock (_producerLock)
+        {
+            // Re-check: while awaiting the old teardown another caller may have already started a
+            // fresh producer. If so, just attach to it instead of starting a second one.
+            var liveProducerExists =
+                _producerTask is { IsCompleted: false } &&
+                _producerStopCts is { IsCancellationRequested: false } &&
+                !channelChangedCt.IsCancellationRequested;
+
+            if (liveProducerExists)
+            {
+                _fanout.Register(listener, writer, clientDisconnectToken);
+                return true;
+            }
+
+            _logger.LogInformation("Starting HLS segment producer.");
+            _fanout.Register(listener, writer, clientDisconnectToken);
+            _producerStopCts?.Dispose();
+            _producerStopCts = new CancellationTokenSource();
+            var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(channelChangedCt, _producerStopCts.Token);
+            _producerTask = RunProducerAsync(channelProvider, combinedCts);
+            return false;
         }
     }
 
@@ -282,11 +341,16 @@ public class HlsSegmentProducer
             {
                 throw;
             }
-            catch (SegmentNotFoundException)
+            catch (SegmentNotFoundException seg)
             {
                 // A 404 means the playlist is stale. Do not retry the same segment;
                 // trigger a (debounced) playlist refresh and let the producer restart
                 // against the fresh segment list.
+                _logger.LogDebug(
+                    "Segment {SegmentName}({url}) not found (404)",
+                    segmentName,
+                    seg.Url);
+
                 _logger.LogWarning(
                     "Segment {SegmentName} not found (404) for channel {ChannelId}; refreshing playlist.",
                     segmentName,

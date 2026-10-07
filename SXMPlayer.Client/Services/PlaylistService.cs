@@ -263,17 +263,129 @@ public class PlaylistService
         }
     }
 
+    /// <summary>
+    /// A single variant stream from a master (multivariant) HLS playlist: the parsed
+    /// <c>#EXT-X-STREAM-INF</c> attributes paired with the URI line that follows it.
+    /// </summary>
+    /// <param name="Uri">The variant playlist URI (relative or absolute, as written).</param>
+    /// <param name="Bandwidth">The peak <c>BANDWIDTH</c> in bits per second, or <c>null</c> if not advertised.</param>
+    /// <param name="AverageBandwidth">The <c>AVERAGE-BANDWIDTH</c> in bits per second, or <c>null</c> if not advertised.</param>
+    /// <param name="Codecs">The <c>CODECS</c> value, or <c>null</c> if not advertised.</param>
+    public readonly record struct HlsVariant(string Uri, long? Bandwidth, long? AverageBandwidth, string? Codecs);
+
+    /// <summary>
+    /// Parses a master (multivariant) HLS playlist into its variant streams. Each
+    /// <c>#EXT-X-STREAM-INF</c> tag is paired with the next non-comment, non-empty line, which
+    /// holds the variant URI. Variants appear in document order; the order of the tags does not
+    /// affect parsing.
+    /// </summary>
+    public static HlsVariant[] ParseMasterPlaylist(IReadOnlyList<string> lines)
+    {
+        var variants = new List<HlsVariant>();
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].Trim();
+            if (!line.StartsWith("#EXT-X-STREAM-INF", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // The variant URI is the next non-comment, non-empty line.
+            string? uri = null;
+            for (int j = i + 1; j < lines.Count; j++)
+            {
+                var candidate = lines[j].Trim();
+                if (candidate.Length == 0 || candidate.StartsWith('#'))
+                {
+                    continue;
+                }
+                uri = candidate;
+                break;
+            }
+
+            if (uri is null)
+            {
+                continue;
+            }
+
+            variants.Add(new HlsVariant(
+                Uri: uri,
+                Bandwidth: ReadLongAttribute(line, "BANDWIDTH"),
+                AverageBandwidth: ReadLongAttribute(line, "AVERAGE-BANDWIDTH"),
+                Codecs: ReadStringAttribute(line, "CODECS")));
+        }
+
+        return variants.ToArray();
+    }
+
+    private static long? ReadLongAttribute(string line, string attribute)
+    {
+        var match = Regex.Match(line, $@"(?:^|[,:]){Regex.Escape(attribute)}=(?<v>\d+)");
+        return match.Success && long.TryParse(match.Groups["v"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
+    }
+
+    private static string? ReadStringAttribute(string line, string attribute)
+    {
+        var match = Regex.Match(line, $@"(?:^|[,:]){Regex.Escape(attribute)}=""(?<v>[^""]*)""");
+        return match.Success ? match.Groups["v"].Value : null;
+    }
+
+    /// <summary>
+    /// Selects the variant URI with the highest advertised bandwidth from a master playlist, so
+    /// the order in which variants appear does not matter. Falls back to the first parsed variant
+    /// when no <c>BANDWIDTH</c> is advertised, and to the first URI-looking line when the playlist
+    /// has no <c>#EXT-X-STREAM-INF</c> entries at all.
+    /// </summary>
+    public static string SelectHighestBandwidthVariant(IReadOnlyList<string> lines)
+    {
+        var variants = ParseMasterPlaylist(lines);
+
+        if (variants.Length > 0)
+        {
+            var best = variants
+                .OrderByDescending(v => v.Bandwidth ?? -1)
+                .First();
+            return best.Uri;
+        }
+
+        // No EXT-X-STREAM-INF entries found; fall back to the first URI-looking line.
+        return lines.First(l => l.Contains("m3u8"));
+    }
+
+    /// <summary>
+    /// Resolves the source master playlist URL and selects the highest-bandwidth variant.
+    /// </summary>
+    /// <param name="useSecondary">
+    /// When <c>true</c>, prefers the secondary (non-primary) stream URL, falling back to the
+    /// primary URL if no secondary is available. When <c>false</c> (default), prefers the
+    /// primary URL, falling back to any available URL.
+    /// </param>
     public async Task<string> GetProxyPlaylistUrlAsync(
         string channelId,
         Func<string, Task<Streams>> tuneSource,
-        Func<string, Task<HttpResponseMessage?>> getHttpResponse)
+        Func<string, Task<HttpResponseMessage?>> getHttpResponse,
+        bool useSecondary = false)
     {
         Streams stream = await tuneSource(channelId);
-        var bandwidths = stream.Urls.First(s => s.IsPrimary).Url;
+        var urls = stream.Urls ?? throw new InvalidOperationException($"No stream URLs returned for channel {channelId}");
+
+        var selectedUrl = useSecondary
+            ? (urls.FirstOrDefault(s => !s.IsPrimary) ?? urls.FirstOrDefault(s => s.IsPrimary) ?? urls.FirstOrDefault())
+            : (urls.FirstOrDefault(s => s.IsPrimary) ?? urls.FirstOrDefault());
+
+        if (selectedUrl is null)
+        {
+            throw new InvalidOperationException($"No {(useSecondary ? "secondary" : "primary")} stream URL available for channel {channelId}");
+        }
+
+        var bandwidths = selectedUrl.Url;
         var res = await getHttpResponse(bandwidths);
         var allLines = await res!.Content.ReadAsStringAsync();
         string[] lines = SplitLines(allLines);
-        var topBandwidth = lines.First(l => l.Contains("m3u8"));
+        var topBandwidth = SelectHighestBandwidthVariant(lines);
         var uri = new Uri(bandwidths);
         var tgtPath = string.Join("", uri.Segments[0..^1]);
         var finalM3U8 = $"{uri.Scheme}://{uri.Host}{tgtPath}{topBandwidth}";
