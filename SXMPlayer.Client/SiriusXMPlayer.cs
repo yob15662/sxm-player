@@ -323,7 +323,7 @@ public class SiriusXMPlayer : IDisposable
             // the secondary gets a clean run before considering further escalation.
             // Capture the count the registration observed (pre-reset) so the log mirrors
             // the previous behavior, where the incremented value was logged before any reset.
-            var (escalated, observedCount) = playerState.RegisterStaleRefresh();
+            var (escalated, observedCount, bothStreamsStale) = playerState.RegisterStaleRefresh();
             logger.LogInformation("Playlist refresh requested - reason={Reason} consecutiveStaleRefreshes={Count}",
                 reason,
                 observedCount);
@@ -332,6 +332,20 @@ public class SiriusXMPlayer : IDisposable
             {
                 logger.LogWarning(
                     "Repeated stale playlist refreshes ({Threshold}); falling back to secondary stream URL - reason={Reason}",
+                    PlayerState.SecondaryFallbackRefreshThreshold,
+                    reason);
+            }
+            else if (bothStreamsStale)
+            {
+                // The secondary URL was already selected and it, too, has produced no playable
+                // segments across the threshold's worth of stale refreshes. Both the primary and
+                // secondary stream URLs are stale, so refreshing/restarting the producer cannot
+                // recover audio - surface this clearly instead of letting the stream stall silently
+                // until the client disconnects.
+                logger.LogError(
+                    "Both primary and secondary stream URLs are stale - {Threshold} consecutive stale "
+                        + "refreshes on the secondary URL yielded no playable segments. Audio cannot recover "
+                        + "without a fresh playlist/session. reason={Reason}",
                     PlayerState.SecondaryFallbackRefreshThreshold,
                     reason);
             }

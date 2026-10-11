@@ -19,9 +19,10 @@ public class PlayerStateTests
     {
         var state = new PlayerState();
 
-        var (escalated, observedCount) = state.RegisterStaleRefresh();
+        var (escalated, observedCount, bothStreamsStale) = state.RegisterStaleRefresh();
 
         Assert.False(escalated);
+        Assert.False(bothStreamsStale);
         Assert.Equal(1, observedCount);
         Assert.False(state.UseSecondaryStreamUrl);
         Assert.Equal(1, state.ConsecutiveStaleRefreshes);
@@ -33,9 +34,10 @@ public class PlayerStateTests
         var state = new PlayerState();
 
         state.RegisterStaleRefresh();
-        var (escalated, observedCount) = state.RegisterStaleRefresh();
+        var (escalated, observedCount, bothStreamsStale) = state.RegisterStaleRefresh();
 
         Assert.True(escalated);
+        Assert.False(bothStreamsStale);
         // The observed count mirrors the pre-reset value the old log line reported.
         Assert.Equal(PlayerState.SecondaryFallbackRefreshThreshold, observedCount);
         Assert.True(state.UseSecondaryStreamUrl);
@@ -50,12 +52,39 @@ public class PlayerStateTests
         state.RegisterStaleRefresh();
         state.RegisterStaleRefresh(); // escalates here
 
-        var (escalated, observedCount) = state.RegisterStaleRefresh();
+        var (escalated, observedCount, bothStreamsStale) = state.RegisterStaleRefresh();
 
         Assert.False(escalated);
+        Assert.False(bothStreamsStale);
         Assert.Equal(1, observedCount);
         Assert.True(state.UseSecondaryStreamUrl);
         Assert.Equal(1, state.ConsecutiveStaleRefreshes);
+    }
+
+    [Fact]
+    public void SecondaryAlsoStale_SignalsBothStreamsStale_AtThreshold_AndResetsCounter()
+    {
+        var state = new PlayerState();
+
+        state.RegisterStaleRefresh();
+        state.RegisterStaleRefresh(); // escalates to the secondary URL, counter resets to 0
+
+        // Now the secondary URL itself goes stale. The first refresh does not yet signal;
+        // the one that reaches the threshold reports BothStreamsStale and resets the counter.
+        var first = state.RegisterStaleRefresh();
+        var second = state.RegisterStaleRefresh();
+
+        Assert.False(first.Escalated);
+        Assert.False(first.BothStreamsStale);
+        Assert.Equal(1, first.ConsecutiveStaleRefreshes);
+
+        Assert.False(second.Escalated);
+        Assert.True(second.BothStreamsStale);
+        Assert.Equal(PlayerState.SecondaryFallbackRefreshThreshold, second.ConsecutiveStaleRefreshes);
+
+        // Still on the secondary URL; the counter resets so the signal re-fires on a cadence.
+        Assert.True(state.UseSecondaryStreamUrl);
+        Assert.Equal(0, state.ConsecutiveStaleRefreshes);
     }
 
     [Fact]
@@ -105,7 +134,7 @@ public class PlayerStateTests
         var tasks = Enumerable.Range(0, taskCount).Select(_ => Task.Run(() =>
         {
             startGate.Wait();
-            var (escalated, _) = state.RegisterStaleRefresh();
+            var (escalated, _, _) = state.RegisterStaleRefresh();
             if (escalated)
             {
                 Interlocked.Increment(ref escalationCount);

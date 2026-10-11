@@ -57,10 +57,13 @@ public class PlayerState
     /// </summary>
     /// <returns>
     /// A tuple of <c>Escalated</c> (<c>true</c> when this call caused the fallback to the
-    /// secondary URL) and <c>ConsecutiveStaleRefreshes</c> (the counter value observed after
-    /// the increment but before any escalation reset, so callers can log the pre-reset count).
+    /// secondary URL), <c>ConsecutiveStaleRefreshes</c> (the counter value observed after
+    /// the increment but before any escalation reset, so callers can log the pre-reset count),
+    /// and <c>BothStreamsStale</c> (<c>true</c> when we were already on the secondary URL and
+    /// its stale refreshes have themselves reached <see cref="SecondaryFallbackRefreshThreshold"/>,
+    /// meaning neither the primary nor the secondary URL is producing playable segments).
     /// </returns>
-    public (bool Escalated, int ConsecutiveStaleRefreshes) RegisterStaleRefresh()
+    public (bool Escalated, int ConsecutiveStaleRefreshes, bool BothStreamsStale) RegisterStaleRefresh()
     {
         lock (_gate)
         {
@@ -71,10 +74,20 @@ public class PlayerState
             {
                 _useSecondaryStreamUrl = true;
                 _consecutiveStaleRefreshes = 0;
-                return (true, observedCount);
+                return (true, observedCount, false);
             }
 
-            return (false, observedCount);
+            // Already on the secondary URL and it is also failing to yield segments. Once the
+            // secondary's own stale refreshes reach the threshold, report that both streams are
+            // stale so callers can surface a clear diagnostic instead of stalling silently. Reset
+            // the counter so the signal fires on a cadence rather than once-and-never-again.
+            if (_useSecondaryStreamUrl && _consecutiveStaleRefreshes >= SecondaryFallbackRefreshThreshold)
+            {
+                _consecutiveStaleRefreshes = 0;
+                return (false, observedCount, true);
+            }
+
+            return (false, observedCount, false);
         }
     }
 
